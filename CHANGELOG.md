@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+### Added
+
+- Near-instant drift correction: managed copies are watched, so a copy that is
+  hand-edited or deleted is restored right away instead of waiting for the
+  periodic resync.
+- Kubernetes Events on the source object — `Replicated` on change, `Skipped`
+  when an unmanaged object blocks a copy, and `InvalidSelector` for a bad
+  selector — visible via `kubectl describe`.
+- Configurable annotation domain via `--annotation-domain` (and the chart's
+  `annotationDomain` value), so Replikate can be reused under any domain instead
+  of the hardcoded default.
 
 ## [0.1.0] - 2026-07-17
 

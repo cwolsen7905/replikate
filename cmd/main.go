@@ -31,11 +31,14 @@ func main() {
 		metricsAddr          string
 		probeAddr            string
 		enableLeaderElection bool
+		annotationDomain     string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election, ensuring only one active manager.")
+	flag.StringVar(&annotationDomain, "annotation-domain", controller.DefaultDomain,
+		"Annotation/label key prefix Replikate watches for (e.g. \"replikate.brainchurts.com\").")
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -54,7 +57,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	syncer := &controller.Syncer{Client: mgr.GetClient()}
+	syncer := &controller.Syncer{
+		Client:   mgr.GetClient(),
+		Keys:     controller.NewKeys(annotationDomain),
+		Recorder: mgr.GetEventRecorderFor("replikate"),
+	}
+	setupLog.Info("using annotation domain", "domain", annotationDomain)
 
 	if err := (&controller.ConfigMapReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")

@@ -6,32 +6,16 @@ package controller
 import (
 	"bytes"
 	"maps"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Domain is the annotation/label key prefix owned by Replikate.
-const Domain = "replikate.brainchurts.com"
+// DefaultDomain is the annotation/label key prefix used when none is configured.
+const DefaultDomain = "replikate.brainchurts.com"
 
 const (
-	// SyncAnnotation, when present on a ConfigMap or Secret, marks it as a
-	// replication source. Its value is a label selector matched against
-	// namespace labels; an empty value means "all namespaces".
-	SyncAnnotation = Domain + "/sync"
-
-	// Finalizer lets Replikate clean up copies before a source is deleted.
-	Finalizer = Domain + "/finalizer"
-
-	// ManagedByLabel marks an object as a Replikate-managed copy.
-	ManagedByLabel = Domain + "/managed-by"
-	// OriginNSLabel records the source object's namespace on each copy.
-	OriginNSLabel = Domain + "/origin-namespace"
-	// OriginNameLabel records the source object's name on each copy.
-	OriginNameLabel = Domain + "/origin-name"
-
-	// ManagedByValue is the value of ManagedByLabel on managed copies.
+	// ManagedByValue is the value of the managed-by label on every copy.
 	ManagedByValue = "replikate"
 
 	// lastAppliedAnnotation is stripped from copies; it is meaningless there.
@@ -45,6 +29,66 @@ const (
 	kubedOriginPrefix = "kubed.appscode.com/origin"
 )
 
+// Keys holds the annotation and label keys Replikate uses, all derived from a
+// configurable domain prefix so the controller can be reused under any domain.
+type Keys struct {
+	// Domain is the key prefix, e.g. "replikate.brainchurts.com".
+	Domain string
+	// SyncAnnotation marks a ConfigMap/Secret as a replication source; its
+	// value is a namespace label selector (empty means all namespaces).
+	SyncAnnotation string
+	// Finalizer lets Replikate clean up copies before a source is deleted.
+	Finalizer string
+	// ManagedByLabel marks an object as a Replikate-managed copy.
+	ManagedByLabel string
+	// OriginNSLabel / OriginNameLabel record the source's namespace and name.
+	OriginNSLabel   string
+	OriginNameLabel string
+}
+
+// NewKeys derives the annotation/label keys from a domain prefix.
+func NewKeys(domain string) Keys {
+	return Keys{
+		Domain:          domain,
+		SyncAnnotation:  domain + "/sync",
+		Finalizer:       domain + "/finalizer",
+		ManagedByLabel:  domain + "/managed-by",
+		OriginNSLabel:   domain + "/origin-namespace",
+		OriginNameLabel: domain + "/origin-name",
+	}
+}
+
+// isSource reports whether obj is annotated as a replication source.
+func (k Keys) isSource(obj client.Object) bool {
+	_, ok := obj.GetAnnotations()[k.SyncAnnotation]
+	return ok
+}
+
+// isManagedCopy reports whether obj is one of Replikate's managed copies.
+func (k Keys) isManagedCopy(obj client.Object) bool {
+	return obj.GetLabels()[k.ManagedByLabel] == ManagedByValue
+}
+
+// applyCopyMeta mirrors the source's labels and annotations onto a copy (minus
+// Replikate's own keys) and stamps the managed-copy labels used for lookups.
+func (k Keys) applyCopyMeta(src, dst client.Object) {
+	out := map[string]string{}
+	maps.Copy(out, src.GetLabels())
+	out[k.ManagedByLabel] = ManagedByValue
+	out[k.OriginNSLabel] = src.GetNamespace()
+	out[k.OriginNameLabel] = src.GetName()
+	dst.SetLabels(out)
+
+	ann := map[string]string{}
+	for key, v := range src.GetAnnotations() {
+		if key == k.SyncAnnotation || key == lastAppliedAnnotation {
+			continue
+		}
+		ann[key] = v
+	}
+	dst.SetAnnotations(ann)
+}
+
 // isAdoptable reports whether obj is an existing replicated copy that Replikate
 // may safely take over — currently, any copy previously managed by AppsCode's
 // config-syncer, identified by its origin annotation or origin labels.
@@ -53,17 +97,11 @@ func isAdoptable(obj client.Object) bool {
 		return true
 	}
 	for k := range obj.GetLabels() {
-		if strings.HasPrefix(k, kubedOriginPrefix) {
+		if len(k) >= len(kubedOriginPrefix) && k[:len(kubedOriginPrefix)] == kubedOriginPrefix {
 			return true
 		}
 	}
 	return false
-}
-
-// isSource reports whether obj is annotated as a replication source.
-func isSource(obj client.Object) bool {
-	_, ok := obj.GetAnnotations()[SyncAnnotation]
-	return ok
 }
 
 // emptyLike returns a new empty object of the same concrete kind as obj.
@@ -110,6 +148,21 @@ func listItems(list client.ObjectList) []client.Object {
 	}
 }
 
+// copyContents copies the payload from src into dst. Both must be the same
+// concrete kind (ConfigMap or Secret).
+func copyContents(src, dst client.Object) {
+	switch s := src.(type) {
+	case *corev1.ConfigMap:
+		d := dst.(*corev1.ConfigMap)
+		d.Data = s.Data
+		d.BinaryData = s.BinaryData
+	case *corev1.Secret:
+		d := dst.(*corev1.Secret)
+		d.Data = s.Data
+		d.Type = s.Type
+	}
+}
+
 // contentEqual reports whether two copies already carry identical managed
 // content — labels, annotations, and payload — so a write can be skipped.
 func contentEqual(a, b client.Object) bool {
@@ -138,19 +191,4 @@ func byteMapEqual(a, b map[string][]byte) bool {
 		}
 	}
 	return true
-}
-
-// copyContents copies the payload from src into dst. Both must be the same
-// concrete kind (ConfigMap or Secret).
-func copyContents(src, dst client.Object) {
-	switch s := src.(type) {
-	case *corev1.ConfigMap:
-		d := dst.(*corev1.ConfigMap)
-		d.Data = s.Data
-		d.BinaryData = s.BinaryData
-	case *corev1.Secret:
-		d := dst.(*corev1.Secret)
-		d.Data = s.Data
-		d.Type = s.Type
-	}
 }

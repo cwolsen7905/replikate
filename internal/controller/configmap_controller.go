@@ -7,9 +7,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -27,24 +25,18 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return r.reconcileSource(ctx, &cm)
 }
 
-// SetupWithManager wires the controller: it reconciles source ConfigMaps and
-// re-drives all sources whenever a namespace changes.
+// SetupWithManager wires the controller. It reconciles source ConfigMaps,
+// re-drives all sources when a namespace changes, and re-drives the source when
+// one of its managed copies is edited or deleted (drift correction).
 func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.ConfigMap{}, builder.WithPredicates(sourcePredicate())).
+		For(&corev1.ConfigMap{}, builder.WithPredicates(r.sourcePredicate())).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(
 			func(ctx context.Context, _ client.Object) []reconcile.Request {
 				return r.sourceRequests(ctx, &corev1.ConfigMapList{})
 			})).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.mapCopyToSource),
+			builder.WithPredicates(r.managedCopyPredicate())).
 		Named("configmap").
 		Complete(r)
-}
-
-// sourcePredicate limits reconciliation to objects that are sources or still
-// carry our finalizer, so cleanup can run after the sync annotation is removed.
-// It deliberately excludes managed copies, which prevents replication loops.
-func sourcePredicate() predicate.Predicate {
-	return predicate.NewPredicateFuncs(func(o client.Object) bool {
-		return isSource(o) || controllerutil.ContainsFinalizer(o, Finalizer)
-	})
 }

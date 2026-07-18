@@ -34,6 +34,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --leader-elect={{ .Values.leaderElection.enabled }}
+            - --annotation-domain={{ .Values.annotationDomain }}
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8080
           ports:

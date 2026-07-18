@@ -9,6 +9,10 @@ image:
 # Only needed if the GHCR package is private.
 imagePullSecrets: []
 
+# Annotation/label key prefix Replikate watches. Change this to reuse the
+# controller under your own domain (sources are then annotated <domain>/sync).
+annotationDomain: replikate.brainchurts.com
+
 leaderElection:
   enabled: true
 

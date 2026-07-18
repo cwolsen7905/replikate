@@ -25,15 +25,18 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return r.reconcileSource(ctx, &sec)
 }
 
-// SetupWithManager wires the controller: it reconciles source Secrets and
-// re-drives all sources whenever a namespace changes.
+// SetupWithManager wires the controller. It reconciles source Secrets,
+// re-drives all sources when a namespace changes, and re-drives the source when
+// one of its managed copies is edited or deleted (drift correction).
 func (r *SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Secret{}, builder.WithPredicates(sourcePredicate())).
+		For(&corev1.Secret{}, builder.WithPredicates(r.sourcePredicate())).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(
 			func(ctx context.Context, _ client.Object) []reconcile.Request {
 				return r.sourceRequests(ctx, &corev1.SecretList{})
 			})).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapCopyToSource),
+			builder.WithPredicates(r.managedCopyPredicate())).
 		Named("secret").
 		Complete(r)
 }
