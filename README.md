@@ -15,21 +15,20 @@ Replikate keeps copies in lockstep with the source:
 - Source deleted, or the annotation removed → copies are deleted (via a finalizer).
 - A new namespace appears that matches the selector → it is populated automatically.
 
-Each copy is stamped with `replikate.brainchurts.com/managed-by=replikate` plus origin labels. Replikate will **never overwrite an object it does not manage**, so it won't clobber a ConfigMap/Secret you created by hand.
+Each copy is stamped with `replikate.brainchurts.com/managed-by=replikate` plus origin labels. Replikate will **never overwrite an object it does not manage** — with one deliberate exception: copies left behind by AppsCode's config-syncer (see [Migrating from config-syncer](#migrating-from-config-syncer)). Every action it takes (create / update / adopt / delete a copy) is logged, and it only writes when something actually changed, so the controller logs stay meaningful.
 
 ## Quick start
 
-```sh
-# 1. Push an image (CI does this automatically on push to main), or build it:
-make docker-build docker-push IMAGE_REPO=ghcr.io/cwolsen7905/replikate IMAGE_TAG=v0.1.0
+Images are published multi-arch (`linux/amd64` + `linux/arm64`) to `ghcr.io/cwolsen7905/replikate` by CI on every push to `main`.
 
-# 2. Install into the cluster:
+```sh
+# 1. Install into the cluster (image is built by CI; or `make docker-build docker-push`):
 make deploy IMAGE_REPO=ghcr.io/cwolsen7905/replikate IMAGE_TAG=v0.1.0
 #   (equivalently: helm upgrade --install replikate charts/replikate \
-#      --namespace replikate-system --create-namespace \
+#      --namespace replikate --create-namespace \
 #      --set image.tag=v0.1.0)
 
-# 3. Try it:
+# 2. Try it:
 kubectl apply -f examples/example-configmap.yaml
 kubectl label namespace some-namespace team=web        # gets a copy
 kubectl get configmap shared-config -n some-namespace  # the replica
@@ -49,6 +48,17 @@ data:
   LOG_LEVEL: "info"
 ```
 
+## Migrating from config-syncer
+
+Replikate is annotation-compatible with AppsCode's config-syncer (kubed): the value of the `sync` annotation is a namespace label selector with the same meaning. To migrate:
+
+1. Deploy Replikate alongside config-syncer.
+2. Scale config-syncer to zero so it stops reacting to the annotation change.
+3. Rename the annotation on your sources from `kubed.appscode.com/sync` to `replikate.brainchurts.com/sync`.
+4. Remove config-syncer once Replikate is managing the copies.
+
+Replikate **adopts config-syncer's existing copies in place** — any object carrying config-syncer's `kubed.appscode.com/origin` marker is relabeled and taken over rather than refused, so replicated data (for example, TLS secrets) is never deleted and recreated during the cutover.
+
 ## Development
 
 ```sh
@@ -58,7 +68,7 @@ make test     # go test ./...
 make run      # run against your current kubeconfig (out-of-cluster)
 ```
 
-Requires Go 1.23+, and Docker + Helm for the image/deploy targets. The container is a `distroless/static:nonroot` image; RBAC and the Deployment ship in `charts/replikate`.
+Requires Go 1.23+, and Docker (with buildx/QEMU for multi-arch) + Helm for the image/deploy targets. The container is a `distroless/static:nonroot` image; RBAC and the Deployment ship in `charts/replikate`.
 
 ## Scope & limitations (MVP)
 

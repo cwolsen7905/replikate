@@ -1,7 +1,7 @@
 IMAGE_REPO ?= ghcr.io/cwolsen7905/replikate
 IMAGE_TAG  ?= latest
 IMG        := $(IMAGE_REPO):$(IMAGE_TAG)
-NAMESPACE  ?= replikate-system
+NAMESPACE  ?= replikate
 
 .PHONY: tidy fmt vet build test run docker-build docker-push deploy undeploy
 
