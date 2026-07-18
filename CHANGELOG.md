@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+
+## [0.1.0] - 2026-07-17
+
 ### Added
 
 - Initial controller that replicates ConfigMaps and Secrets across namespaces
@@ -35,4 +39,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/commits/main
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/cwolsen7905/replikate/releases/tag/v0.1.0
