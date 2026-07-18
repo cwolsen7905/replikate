@@ -109,6 +109,7 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) e
 		desired.SetName(src.GetName())
 		applyCopyMeta(src, desired)
 		copyContents(src, desired)
+		l.Info("creating copy", "namespace", ns, "name", src.GetName())
 		if err := s.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
 			return err
 		}
@@ -120,21 +121,30 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) e
 	// The target already exists. Update it if it is one of our copies, or adopt
 	// it if it is a copy left behind by config-syncer; otherwise leave it alone
 	// so we never clobber an object a user created themselves.
-	if existing.GetLabels()[ManagedByLabel] != ManagedByValue {
-		if !isAdoptable(existing) {
-			l.Info("refusing to overwrite unmanaged object", "namespace", ns, "name", src.GetName())
-			return nil
-		}
-		l.Info("adopting existing replicated copy", "namespace", ns, "name", src.GetName())
+	managed := existing.GetLabels()[ManagedByLabel] == ManagedByValue
+	if !managed && !isAdoptable(existing) {
+		l.Info("refusing to overwrite unmanaged object", "namespace", ns, "name", src.GetName())
+		return nil
 	}
+
+	before := existing.DeepCopyObject().(client.Object)
 	applyCopyMeta(src, existing)
 	copyContents(src, existing)
+	if managed && contentEqual(before, existing) {
+		return nil // already in the desired state; skip the write (and the log)
+	}
+	if managed {
+		l.Info("updating copy", "namespace", ns, "name", src.GetName())
+	} else {
+		l.Info("adopting copy", "namespace", ns, "name", src.GetName())
+	}
 	return s.Update(ctx, existing)
 }
 
 // deleteCopies removes managed copies of src. When keep is non-nil, copies whose
 // namespace is present in keep are retained; when keep is nil, all copies go.
 func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[string]bool) error {
+	l := log.FromContext(ctx)
 	list := emptyListLike(src)
 	if err := s.List(ctx, list, client.MatchingLabels{
 		ManagedByLabel:  ManagedByValue,
@@ -147,6 +157,7 @@ func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[s
 		if keep != nil && keep[c.GetNamespace()] {
 			continue
 		}
+		l.Info("deleting copy", "namespace", c.GetNamespace(), "name", c.GetName())
 		if err := s.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}

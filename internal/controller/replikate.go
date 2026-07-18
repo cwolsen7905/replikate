@@ -4,6 +4,8 @@
 package controller
 
 import (
+	"bytes"
+	"maps"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -106,6 +108,36 @@ func listItems(list client.ObjectList) []client.Object {
 	default:
 		return nil
 	}
+}
+
+// contentEqual reports whether two copies already carry identical managed
+// content — labels, annotations, and payload — so a write can be skipped.
+func contentEqual(a, b client.Object) bool {
+	if !maps.Equal(a.GetLabels(), b.GetLabels()) || !maps.Equal(a.GetAnnotations(), b.GetAnnotations()) {
+		return false
+	}
+	switch x := a.(type) {
+	case *corev1.ConfigMap:
+		y := b.(*corev1.ConfigMap)
+		return maps.Equal(x.Data, y.Data) && byteMapEqual(x.BinaryData, y.BinaryData)
+	case *corev1.Secret:
+		y := b.(*corev1.Secret)
+		return x.Type == y.Type && byteMapEqual(x.Data, y.Data)
+	}
+	return false
+}
+
+// byteMapEqual compares two map[string][]byte values for equality.
+func byteMapEqual(a, b map[string][]byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if w, ok := b[k]; !ok || !bytes.Equal(v, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // copyContents copies the payload from src into dst. Both must be the same
