@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+
+## [0.2.0] - 2026-07-17
+
 ### Added
 
 - Near-instant drift correction: managed copies are watched, so a copy that is
@@ -18,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable annotation domain via `--annotation-domain` (and the chart's
   `annotationDomain` value), so Replikate can be reused under any domain instead
   of the hardcoded default.
+- `CONTRIBUTING.md` and README status badges.
+
+### Changed
+
+- CI skips the image build for markdown/LICENSE-only changes.
 
 ## [0.1.0] - 2026-07-17
 
@@ -49,5 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cwolsen7905/replikate/releases/tag/v0.1.0
