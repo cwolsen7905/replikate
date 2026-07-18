@@ -7,9 +7,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -17,7 +19,19 @@ import (
 // Secret controllers.
 type Syncer struct {
 	client.Client
+	Keys     Keys
+	Recorder record.EventRecorder
 }
+
+// action describes what upsertCopy did to a single target, for event summaries.
+type action int
+
+const (
+	actionNone action = iota
+	actionCreated
+	actionUpdated
+	actionAdopted
+)
 
 // reconcileSource brings the set of managed copies for a single source object
 // into the desired state. obj must already be fetched from the API server.
@@ -30,16 +44,16 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	}
 
 	// Not (or no longer) a source: tear down any copies we still own.
-	if !isSource(obj) {
-		if controllerutil.ContainsFinalizer(obj, Finalizer) {
+	if !s.Keys.isSource(obj) {
+		if controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
 			return reconcile.Result{}, s.cleanupAndRemoveFinalizer(ctx, obj)
 		}
 		return reconcile.Result{}, nil
 	}
 
 	// Ensure our finalizer is present before we create any copies.
-	if !controllerutil.ContainsFinalizer(obj, Finalizer) {
-		controllerutil.AddFinalizer(obj, Finalizer)
+	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
+		controllerutil.AddFinalizer(obj, s.Keys.Finalizer)
 		if err := s.Update(ctx, obj); err != nil {
 			return reconcile.Result{}, client.IgnoreNotFound(err)
 		}
@@ -47,10 +61,12 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	}
 
 	// Parse the namespace selector (empty value => every namespace).
-	selValue := obj.GetAnnotations()[SyncAnnotation]
+	selValue := obj.GetAnnotations()[s.Keys.SyncAnnotation]
 	selector, err := labels.Parse(selValue)
 	if err != nil {
 		l.Error(err, "invalid namespace selector; skipping", "selector", selValue)
+		s.Recorder.Eventf(obj, corev1.EventTypeWarning, "InvalidSelector",
+			"Ignoring invalid sync selector %q: %v", selValue, err)
 		return reconcile.Result{}, nil // user error: requeuing won't help
 	}
 
@@ -70,33 +86,48 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 		}
 	}
 
-	// Create or update a copy in every target namespace.
+	// Create, update, or adopt a copy in every target namespace.
+	changed := 0
 	for ns := range targets {
-		if err := s.upsertCopy(ctx, obj, ns); err != nil {
+		act, err := s.upsertCopy(ctx, obj, ns)
+		if err != nil {
 			return reconcile.Result{}, err
+		}
+		if act != actionNone {
+			changed++
 		}
 	}
 
 	// Remove copies from namespaces that are no longer targets.
-	return reconcile.Result{}, s.deleteCopies(ctx, obj, targets)
+	deleted, err := s.deleteCopies(ctx, obj, targets)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if changed > 0 || deleted > 0 {
+		s.Recorder.Eventf(obj, corev1.EventTypeNormal, "Replicated",
+			"Reconciled %d target namespace(s): %d written, %d removed", len(targets), changed, deleted)
+	}
+	return reconcile.Result{}, nil
 }
 
 // cleanupAndRemoveFinalizer deletes every copy owned by obj and then removes the
 // Replikate finalizer, allowing the source's own deletion to proceed.
 func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Object) error {
-	if !controllerutil.ContainsFinalizer(obj, Finalizer) {
+	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
 		return nil
 	}
-	if err := s.deleteCopies(ctx, obj, nil); err != nil {
+	if _, err := s.deleteCopies(ctx, obj, nil); err != nil {
 		return err
 	}
-	controllerutil.RemoveFinalizer(obj, Finalizer)
+	controllerutil.RemoveFinalizer(obj, s.Keys.Finalizer)
 	return client.IgnoreNotFound(s.Update(ctx, obj))
 }
 
-// upsertCopy creates or updates the managed copy of src in namespace ns. It
-// refuses to overwrite an object it does not manage.
-func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) error {
+// upsertCopy creates, updates, or adopts the managed copy of src in namespace
+// ns, and reports what it did. It refuses to overwrite an object it does not
+// manage unless that object is an adoptable config-syncer copy.
+func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) (action, error) {
 	l := log.FromContext(ctx)
 	key := types.NamespacedName{Namespace: ns, Name: src.GetName()}
 
@@ -107,84 +138,70 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) e
 		desired := emptyLike(src)
 		desired.SetNamespace(ns)
 		desired.SetName(src.GetName())
-		applyCopyMeta(src, desired)
+		s.Keys.applyCopyMeta(src, desired)
 		copyContents(src, desired)
 		l.Info("creating copy", "namespace", ns, "name", src.GetName())
 		if err := s.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
+			return actionNone, err
 		}
-		return nil
+		return actionCreated, nil
 	case err != nil:
-		return err
+		return actionNone, err
 	}
 
-	// The target already exists. Update it if it is one of our copies, or adopt
-	// it if it is a copy left behind by config-syncer; otherwise leave it alone
-	// so we never clobber an object a user created themselves.
-	managed := existing.GetLabels()[ManagedByLabel] == ManagedByValue
+	managed := s.Keys.isManagedCopy(existing)
 	if !managed && !isAdoptable(existing) {
 		l.Info("refusing to overwrite unmanaged object", "namespace", ns, "name", src.GetName())
-		return nil
+		s.Recorder.Eventf(src, corev1.EventTypeWarning, "Skipped",
+			"Refusing to overwrite unmanaged object %s/%s", ns, src.GetName())
+		return actionNone, nil
 	}
 
 	before := existing.DeepCopyObject().(client.Object)
-	applyCopyMeta(src, existing)
+	s.Keys.applyCopyMeta(src, existing)
 	copyContents(src, existing)
 	if managed && contentEqual(before, existing) {
-		return nil // already in the desired state; skip the write (and the log)
+		return actionNone, nil // already in the desired state; skip the write
 	}
 	if managed {
 		l.Info("updating copy", "namespace", ns, "name", src.GetName())
 	} else {
 		l.Info("adopting copy", "namespace", ns, "name", src.GetName())
 	}
-	return s.Update(ctx, existing)
+	if err := s.Update(ctx, existing); err != nil {
+		return actionNone, err
+	}
+	if managed {
+		return actionUpdated, nil
+	}
+	return actionAdopted, nil
 }
 
-// deleteCopies removes managed copies of src. When keep is non-nil, copies whose
-// namespace is present in keep are retained; when keep is nil, all copies go.
-func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[string]bool) error {
+// deleteCopies removes managed copies of src and reports how many it deleted.
+// When keep is non-nil, copies whose namespace is present in keep are retained;
+// when keep is nil, all copies go.
+func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[string]bool) (int, error) {
 	l := log.FromContext(ctx)
 	list := emptyListLike(src)
 	if err := s.List(ctx, list, client.MatchingLabels{
-		ManagedByLabel:  ManagedByValue,
-		OriginNSLabel:   src.GetNamespace(),
-		OriginNameLabel: src.GetName(),
+		s.Keys.ManagedByLabel:  ManagedByValue,
+		s.Keys.OriginNSLabel:   src.GetNamespace(),
+		s.Keys.OriginNameLabel: src.GetName(),
 	}); err != nil {
-		return err
+		return 0, err
 	}
+	n := 0
 	for _, c := range listItems(list) {
 		if keep != nil && keep[c.GetNamespace()] {
 			continue
 		}
 		l.Info("deleting copy", "namespace", c.GetNamespace(), "name", c.GetName())
 		if err := s.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
-			return err
+			return n, err
 		}
+		n++
 	}
-	return nil
-}
-
-// applyCopyMeta mirrors the source's labels and annotations onto a copy (minus
-// Replikate's own keys) and stamps the managed-copy labels used for lookups.
-func applyCopyMeta(src, dst client.Object) {
-	out := map[string]string{}
-	for k, v := range src.GetLabels() {
-		out[k] = v
-	}
-	out[ManagedByLabel] = ManagedByValue
-	out[OriginNSLabel] = src.GetNamespace()
-	out[OriginNameLabel] = src.GetName()
-	dst.SetLabels(out)
-
-	ann := map[string]string{}
-	for k, v := range src.GetAnnotations() {
-		if k == SyncAnnotation || k == lastAppliedAnnotation {
-			continue
-		}
-		ann[k] = v
-	}
-	dst.SetAnnotations(ann)
+	return n, nil
 }
 
 // sourceRequests lists every source object of the kind backing list and returns
@@ -195,7 +212,7 @@ func (s *Syncer) sourceRequests(ctx context.Context, list client.ObjectList) []r
 	}
 	var reqs []reconcile.Request
 	for _, o := range listItems(list) {
-		if isSource(o) {
+		if s.Keys.isSource(o) {
 			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: o.GetNamespace(),
 				Name:      o.GetName(),
@@ -203,4 +220,33 @@ func (s *Syncer) sourceRequests(ctx context.Context, list client.ObjectList) []r
 		}
 	}
 	return reqs
+}
+
+// mapCopyToSource maps a managed copy back to a reconcile request for its
+// source, so that editing or deleting a copy re-drives the source and restores
+// the copy — near-instant drift correction, rather than waiting for a resync.
+func (s *Syncer) mapCopyToSource(_ context.Context, obj client.Object) []reconcile.Request {
+	ls := obj.GetLabels()
+	if ls[s.Keys.ManagedByLabel] != ManagedByValue {
+		return nil
+	}
+	ns, name := ls[s.Keys.OriginNSLabel], ls[s.Keys.OriginNameLabel]
+	if ns == "" || name == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}}
+}
+
+// sourcePredicate limits the primary watch to objects that are sources or still
+// carry our finalizer, so cleanup can run after the sync annotation is removed.
+// It deliberately excludes managed copies, which prevents replication loops.
+func (s *Syncer) sourcePredicate() predicate.Predicate {
+	return predicate.NewPredicateFuncs(func(o client.Object) bool {
+		return s.Keys.isSource(o) || controllerutil.ContainsFinalizer(o, s.Keys.Finalizer)
+	})
+}
+
+// managedCopyPredicate limits the drift-correction watch to Replikate's copies.
+func (s *Syncer) managedCopyPredicate() predicate.Predicate {
+	return predicate.NewPredicateFuncs(s.Keys.isManagedCopy)
 }
