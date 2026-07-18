@@ -1,0 +1,12 @@
+# A source ConfigMap replicated into every namespace labeled team=web.
+# Change the annotation value to "" to replicate into ALL namespaces.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-config
+  namespace: default
+  annotations:
+    replikate.brainchurts.com/sync: "team=web"
+data:
+  LOG_LEVEL: "info"
+  FEATURE_FLAGS: "beta"

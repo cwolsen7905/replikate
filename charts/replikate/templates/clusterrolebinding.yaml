@@ -1,0 +1,16 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "replikate.fullname" . }}
+  labels:
+    {{- include "replikate.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "replikate.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "replikate.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

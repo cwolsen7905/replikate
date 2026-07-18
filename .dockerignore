@@ -1,0 +1,6 @@
+.git
+/bin
+*.md
+charts
+.github
+examples

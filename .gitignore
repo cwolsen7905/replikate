@@ -1,0 +1,5 @@
+/bin/
+*.test
+*.out
+__debug_bin*
+.DS_Store
