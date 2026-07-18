@@ -4,6 +4,8 @@
 package controller
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -32,7 +34,29 @@ const (
 
 	// lastAppliedAnnotation is stripped from copies; it is meaningless there.
 	lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+	// kubedOriginPrefix is the annotation/label key prefix that AppsCode's
+	// config-syncer (kubed) stamps on the copies it manages. Replikate treats
+	// objects carrying it as adoptable, so a config-syncer -> Replikate
+	// migration can take over existing copies in place instead of refusing
+	// them (which would risk deleting live data during the cutover).
+	kubedOriginPrefix = "kubed.appscode.com/origin"
 )
+
+// isAdoptable reports whether obj is an existing replicated copy that Replikate
+// may safely take over — currently, any copy previously managed by AppsCode's
+// config-syncer, identified by its origin annotation or origin labels.
+func isAdoptable(obj client.Object) bool {
+	if _, ok := obj.GetAnnotations()[kubedOriginPrefix]; ok {
+		return true
+	}
+	for k := range obj.GetLabels() {
+		if strings.HasPrefix(k, kubedOriginPrefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // isSource reports whether obj is annotated as a replication source.
 func isSource(obj client.Object) bool {

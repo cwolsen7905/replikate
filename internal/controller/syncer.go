@@ -117,10 +117,15 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) e
 		return err
 	}
 
-	// The target already exists; only touch it if it is one of our copies.
+	// The target already exists. Update it if it is one of our copies, or adopt
+	// it if it is a copy left behind by config-syncer; otherwise leave it alone
+	// so we never clobber an object a user created themselves.
 	if existing.GetLabels()[ManagedByLabel] != ManagedByValue {
-		l.Info("refusing to overwrite unmanaged object", "namespace", ns, "name", src.GetName())
-		return nil
+		if !isAdoptable(existing) {
+			l.Info("refusing to overwrite unmanaged object", "namespace", ns, "name", src.GetName())
+			return nil
+		}
+		l.Info("adopting existing replicated copy", "namespace", ns, "name", src.GetName())
 	}
 	applyCopyMeta(src, existing)
 	copyContents(src, existing)
