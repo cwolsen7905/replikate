@@ -1,5 +1,10 @@
 # replikate
 
+[![CI](https://github.com/cwolsen7905/replikate/actions/workflows/ci.yaml/badge.svg)](https://github.com/cwolsen7905/replikate/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/cwolsen7905/replikate?sort=semver)](https://github.com/cwolsen7905/replikate/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/cwolsen7905/replikate)](https://goreportcard.com/report/github.com/cwolsen7905/replikate)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
+
 Replikate is a lightweight, BSD-licensed Kubernetes controller that replicates ConfigMaps and Secrets across namespaces. Annotate a source object and Replikate copies it into every matching namespace — selected by labels or cluster-wide — keeping copies in sync on change, cleaning them up on delete, and populating new namespaces automatically.
 
 ## How it works
