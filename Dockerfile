@@ -4,11 +4,11 @@
 FROM golang:1.23 AS build
 WORKDIR /src
 
-# Copy the full source first so `go mod tidy` can resolve imports. Once you
-# commit a go.sum, you can switch to copying go.mod/go.sum and running
-# `go mod download` here for better layer caching.
+# Download dependencies first so this layer is cached until go.mod/go.sum change.
+COPY go.mod go.sum ./
+RUN go mod download
+
 COPY . .
-RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/replikate ./cmd
 
 # ---- runtime stage ----
