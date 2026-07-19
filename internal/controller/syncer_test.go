@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -316,6 +317,32 @@ func TestMapCopyToSource(t *testing.T) {
 	unmanaged := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "web-a"}}
 	if reqs := s.mapCopyToSource(context.Background(), unmanaged); len(reqs) != 0 {
 		t.Errorf("expected no requests for an unmanaged object, got %d", len(reqs))
+	}
+}
+
+func TestReconcile_RecordsMetrics(t *testing.T) {
+	created := testutil.ToFloat64(copyOperationsTotal.WithLabelValues("configmap", "created"))
+	success := testutil.ToFloat64(reconcileTotal.WithLabelValues("configmap", "success"))
+
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		ns("web-a", map[string]string{"team": "web"}),
+		ns("web-b", map[string]string{"team": "web"}),
+		sourceCM("cfg", "default", "team=web", map[string]string{"k": "v"}),
+	)
+	r := &ConfigMapReconciler{Syncer: s}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "cfg"}}
+	for i := 0; i < 5; i++ {
+		if _, err := r.Reconcile(context.Background(), req); err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+	}
+
+	if got := testutil.ToFloat64(copyOperationsTotal.WithLabelValues("configmap", "created")) - created; got != 2 {
+		t.Errorf("expected 2 create operations recorded, got %v", got)
+	}
+	if got := testutil.ToFloat64(reconcileTotal.WithLabelValues("configmap", "success")) - success; got < 1 {
+		t.Errorf("expected successful reconciles recorded, got %v", got)
 	}
 }
 

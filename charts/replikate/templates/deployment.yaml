@@ -20,6 +20,9 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "replikate.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

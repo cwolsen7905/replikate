@@ -26,15 +26,15 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 - ✅ **Configurable annotation domain** — a flag/Helm value so the project is
   reusable under any domain, not hardcoded to one.
 
-## v0.3.0 — Observability & safety 🚧 (next)
+## v0.3.0 — Observability & safety ✅
 
-- 🔭 **Prometheus metrics** (copies managed, reconcile errors, adoptions) plus a
-  chart `ServiceMonitor`.
+- ✅ **Prometheus metrics** (reconciles by result, copy operations by type) plus
+  a chart `Service` and optional `ServiceMonitor`.
 - ✅ **Namespace exclusions** — `--exclude-namespaces`, defaulting to protect
   system namespaces.
 - ✅ **Test suite** — controller tests covering fan-out, adoption, cleanup, and
   drift before a `1.0` line.
-- 🔭 **Chart hardening** — `PodDisruptionBudget`, `priorityClassName`, and node
+- ✅ **Chart hardening** — `PodDisruptionBudget`, `priorityClassName`, and node
   anti-affinity options.
 
 ## Later / exploring 💡

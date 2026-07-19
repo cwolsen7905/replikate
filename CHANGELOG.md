@@ -13,9 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `excludeNamespaces` value): listed namespaces never receive copies, regardless
   of a source's selector. Defaults to protecting `kube-system`, `kube-public`,
   and `kube-node-lease`; set to empty to exclude none.
+- Prometheus metrics exposed on the existing metrics endpoint:
+  `replikate_reconcile_total{kind,result}` and
+  `replikate_copy_operations_total{kind,operation}`. The chart now ships a
+  metrics `Service` and an optional `ServiceMonitor`
+  (`metrics.serviceMonitor.enabled`).
+- Chart hardening: optional `PodDisruptionBudget`
+  (`podDisruptionBudget.enabled`), `priorityClassName`, and documented pod
+  anti-affinity via the existing `affinity` value.
 - Controller test suite (fake-client) covering fan-out, cluster-wide fan-out,
   config-syncer adoption, refusal to overwrite unmanaged objects, stale-copy
-  removal, finalizer cleanup, and drift correction.
+  removal, finalizer cleanup, drift correction, namespace exclusion, and metric
+  recording.
 
 See [ROADMAP.md](ROADMAP.md) for what's planned next.
 

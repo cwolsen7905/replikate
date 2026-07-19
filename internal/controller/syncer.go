@@ -123,6 +123,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 		}
 		if act != actionNone {
 			changed++
+			copyOperationsTotal.WithLabelValues(kindOf(obj), operationFor(act)).Inc()
 		}
 	}
 
@@ -227,6 +228,7 @@ func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[s
 		if err := s.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
 			return n, err
 		}
+		copyOperationsTotal.WithLabelValues(kindOf(src), "deleted").Inc()
 		n++
 	}
 	return n, nil

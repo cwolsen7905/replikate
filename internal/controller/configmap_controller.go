@@ -22,7 +22,9 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := r.Get(ctx, req.NamespacedName, &cm); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	return r.reconcileSource(ctx, &cm)
+	res, err := r.reconcileSource(ctx, &cm)
+	observeReconcile("configmap", err)
+	return res, err
 }
 
 // SetupWithManager wires the controller. It reconciles source ConfigMaps,
