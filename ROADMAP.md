@@ -37,22 +37,39 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 - ✅ **Chart hardening** — `PodDisruptionBudget`, `priorityClassName`, and node
   anti-affinity options.
 
-## v0.4.0 — 1.0 readiness 🚧 (next)
+## v0.4.0 — 1.0 readiness ✅
 
 - ✅ **Source lookup via a field indexer** — a namespace change now resolves
   affected sources in O(sources) instead of scanning every object.
 - ✅ **Validating admission webhook** — rejects a source whose sync selector
   doesn't parse at apply time, rather than only logging it during reconcile.
 
+## v0.5.0 — Correctness & 1.0 hardening 🚧 (next)
+
+- ✅ **Integration tests** — an `envtest`-backed suite runs the real manager
+  against a live API server, covering fan-out, drift restore, and
+  indexer-driven fan-out to namespaces created after the source.
+- 🔭 **Same-name source conflict guard** — when two sources of the same name in
+  different namespaces target one namespace, they currently overwrite each
+  other's copy on every reconcile. Detect that the existing copy belongs to a
+  *different* source, refuse to overwrite it, and emit a `Conflict` event —
+  first writer wins, the loser surfaces a clear error instead of a silent war.
+- 🔭 **Live webhook smoke test** — exercise the admission webhook end to end on
+  a `kind` cluster with cert-manager (real `ValidatingWebhookConfiguration` +
+  CA injection), the one path `envtest` can't model, before tagging `1.0`.
+
 ## Later / exploring 💡
 
-- 💡 **Cross-cluster replication** via kubeconfig contexts.
+- 💡 **Cross-cluster replication** via kubeconfig contexts — the largest open
+  item from the launch write-up; deliberately post-`1.0` because it expands the
+  annotation contract.
 - 💡 Replicate additional resource kinds beyond ConfigMaps and Secrets.
 
 ## Toward 1.0
 
 `1.0.0` means the annotation contract and behavior are considered stable, with
-meaningful test coverage and the observability pieces above in place. With the
-test suite, metrics, field indexer, and selector webhook now in place, the
-remaining step is declaring the `<domain>/sync` contract frozen. Until then,
-`0.x` releases may change behavior between minor versions.
+meaningful test coverage and the observability pieces above in place. The test
+suite, metrics, field indexer, selector webhook, and integration tests are in
+place; the remaining gates are the **same-name conflict guard** and a **live
+webhook smoke test**, after which the `<domain>/sync` contract can be declared
+frozen. Until then, `0.x` releases may change behavior between minor versions.

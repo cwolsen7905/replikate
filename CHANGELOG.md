@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+### Added
+
+- envtest-backed integration tests (`make test-integration`, behind the
+  `integration` build tag) that run the real manager against a live API server,
+  covering selector fan-out, drift restore, and field-indexer-driven fan-out to
+  namespaces created after the source.
 
 ## [0.4.0] - 2026-07-18
 
