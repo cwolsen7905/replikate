@@ -32,7 +32,7 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
   chart `ServiceMonitor`.
 - 🔭 **Namespace exclusions** — `--exclude-namespaces`, defaulting to protect
   system namespaces.
-- 🚧 **Test suite** — controller tests covering fan-out, adoption, cleanup, and
+- ✅ **Test suite** — controller tests covering fan-out, adoption, cleanup, and
   drift before a `1.0` line.
 - 🔭 **Chart hardening** — `PodDisruptionBudget`, `priorityClassName`, and node
   anti-affinity options.
