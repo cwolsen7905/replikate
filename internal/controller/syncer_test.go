@@ -222,6 +222,69 @@ func TestReconcile_FinalizerCleanupOnDelete(t *testing.T) {
 	}
 }
 
+func TestReconcile_RestoresDriftedCopy(t *testing.T) {
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		ns("web-a", map[string]string{"team": "web"}),
+		sourceCM("cfg", "default", "team=web", map[string]string{"k": "v"}),
+	)
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	// Hand-edit a managed copy; the next reconcile of the source restores it.
+	copy, ok := getCM(t, s, "web-a", "cfg")
+	if !ok {
+		t.Fatal("precondition: copy should exist")
+	}
+	copy.Data["k"] = "TAMPERED"
+	if err := s.Update(context.Background(), copy); err != nil {
+		t.Fatalf("edit copy: %v", err)
+	}
+	reconcileConfigMap(t, s, "default", "cfg")
+	if restored, _ := getCM(t, s, "web-a", "cfg"); restored.Data["k"] != "v" {
+		t.Errorf("edited copy not restored to source data: %v", restored.Data)
+	}
+
+	// Delete a managed copy; the next reconcile of the source recreates it.
+	copy, _ = getCM(t, s, "web-a", "cfg")
+	if err := s.Delete(context.Background(), copy); err != nil {
+		t.Fatalf("delete copy: %v", err)
+	}
+	if _, ok := getCM(t, s, "web-a", "cfg"); ok {
+		t.Fatal("precondition: copy should be gone after delete")
+	}
+	reconcileConfigMap(t, s, "default", "cfg")
+	if _, ok := getCM(t, s, "web-a", "cfg"); !ok {
+		t.Error("deleted copy should have been recreated")
+	}
+}
+
+func TestMapCopyToSource(t *testing.T) {
+	s, _ := newTestSyncer()
+
+	managed := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      "cfg",
+		Namespace: "web-a",
+		Labels: map[string]string{
+			testKeys.ManagedByLabel:  ManagedByValue,
+			testKeys.OriginNSLabel:   "default",
+			testKeys.OriginNameLabel: "cfg",
+		},
+	}}
+	reqs := s.mapCopyToSource(context.Background(), managed)
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request for a managed copy, got %d", len(reqs))
+	}
+	if reqs[0].Namespace != "default" || reqs[0].Name != "cfg" {
+		t.Errorf("mapped to wrong source: %v", reqs[0].NamespacedName)
+	}
+
+	// A copy without the managed-by label maps to nothing (avoids loops).
+	unmanaged := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "web-a"}}
+	if reqs := s.mapCopyToSource(context.Background(), unmanaged); len(reqs) != 0 {
+		t.Errorf("expected no requests for an unmanaged object, got %d", len(reqs))
+	}
+}
+
 func hasEvent(rec *record.FakeRecorder, reason string) bool {
 	for {
 		select {
