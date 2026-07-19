@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   covering selector fan-out, drift restore, field-indexer-driven fan-out to
   namespaces created after the source, and the same-name source conflict guard.
 
+- Live webhook smoke test (`make smoke-test`, `hack/webhook-smoke-test.sh`) plus
+  a CI job that stand up a kind cluster with cert-manager and verify the
+  admission webhook accepts a valid selector and rejects an invalid one over
+  real TLS — the path envtest can't cover.
+
 ### Fixed
 
 - Two sources with the same name in different namespaces that both target one
