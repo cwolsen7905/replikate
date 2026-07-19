@@ -16,24 +16,24 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 - ✅ Action logging with no-op write suppression.
 - ✅ Helm chart and multi-arch (amd64/arm64) images published by CI.
 
-## v0.2.0 — Reliability & reusability 🚧 (next)
+## v0.2.0 — Reliability & reusability ✅
 
-- 🔭 **Instant drift correction** — watch managed copies and restore a deleted
+- ✅ **Instant drift correction** — watch managed copies and restore a deleted
   or hand-edited replica immediately, instead of waiting for the periodic
   resync.
-- 🔭 **Kubernetes Events on the source** — surface "replicated to N namespaces"
+- ✅ **Kubernetes Events on the source** — surface "replicated to N namespaces"
   and errors via `kubectl describe`, not just controller logs.
-- 🔭 **Configurable annotation domain** — a flag/Helm value so the project is
+- ✅ **Configurable annotation domain** — a flag/Helm value so the project is
   reusable under any domain, not hardcoded to one.
 
-## v0.3.0 — Observability & safety 🔭
+## v0.3.0 — Observability & safety 🚧 (next)
 
 - 🔭 **Prometheus metrics** (copies managed, reconcile errors, adoptions) plus a
   chart `ServiceMonitor`.
 - 🔭 **Namespace exclusions** — `--exclude-namespaces`, defaulting to protect
   system namespaces.
-- 🔭 **Test suite** — `envtest`-based controller tests covering fan-out,
-  adoption, cleanup, and drift before a `1.0` line.
+- 🚧 **Test suite** — controller tests covering fan-out, adoption, cleanup, and
+  drift before a `1.0` line.
 - 🔭 **Chart hardening** — `PodDisruptionBudget`, `priorityClassName`, and node
   anti-affinity options.
 
