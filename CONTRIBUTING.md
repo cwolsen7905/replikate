@@ -12,11 +12,18 @@ handy for trying changes end to end.
 ```sh
 git clone https://github.com/cwolsen7905/replikate
 cd replikate
-make tidy      # resolve dependencies
-make build     # compile ./bin/replikate
-make test      # run the test suite
-make run       # run against your current kubeconfig (out-of-cluster)
+make tidy             # resolve dependencies
+make build            # compile ./bin/replikate
+make test             # run the unit test suite
+make test-integration # run envtest-backed integration tests (downloads control-plane binaries)
+make run              # run against your current kubeconfig (out-of-cluster)
 ```
+
+`make test-integration` runs the real manager against a throwaway API server
+via [envtest](https://book.kubebuilder.io/reference/envtest.html); it fetches
+the `kube-apiserver`/`etcd` binaries into `./bin` on first run. The integration
+tests live behind the `integration` build tag, so plain `make test` stays fast
+and needs no extra binaries.
 
 ## Development workflow
 
