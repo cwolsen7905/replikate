@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+### Changed
+
+- Namespace changes now look up affected sources through a field index
+  (`replikate.source`) instead of listing every ConfigMap/Secret in the
+  cluster, so fan-out scales with the number of sources rather than the total
+  object count.
 
 ## [0.3.0] - 2026-07-18
 

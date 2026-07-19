@@ -234,20 +234,36 @@ func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[s
 	return n, nil
 }
 
-// sourceRequests lists every source object of the kind backing list and returns
-// a reconcile request for each, so a namespace change can re-drive all sources.
+// SourceIndexField is the field-index name under which source objects are
+// registered, so a namespace change can look up sources directly instead of
+// scanning every ConfigMap/Secret in the cluster.
+const SourceIndexField = "replikate.source"
+
+// sourceIndexTrue is the index value stored for every source object.
+const sourceIndexTrue = "true"
+
+// indexSource is the field-indexer function: it indexes an object under
+// SourceIndexField only when the object is a replication source.
+func (s *Syncer) indexSource(obj client.Object) []string {
+	if s.Keys.isSource(obj) {
+		return []string{sourceIndexTrue}
+	}
+	return nil
+}
+
+// sourceRequests returns a reconcile request for every source object of the
+// kind backing list, so a namespace change can re-drive all sources. It uses
+// the SourceIndexField index to fetch only sources — O(sources), not O(all).
 func (s *Syncer) sourceRequests(ctx context.Context, list client.ObjectList) []reconcile.Request {
-	if err := s.List(ctx, list); err != nil {
+	if err := s.List(ctx, list, client.MatchingFields{SourceIndexField: sourceIndexTrue}); err != nil {
 		return nil
 	}
 	var reqs []reconcile.Request
 	for _, o := range listItems(list) {
-		if s.Keys.isSource(o) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
-				Namespace: o.GetNamespace(),
-				Name:      o.GetName(),
-			}})
-		}
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+			Namespace: o.GetNamespace(),
+			Name:      o.GetName(),
+		}})
 	}
 	return reqs
 }
