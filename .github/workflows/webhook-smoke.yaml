@@ -1,0 +1,33 @@
+name: Webhook smoke test
+
+# The live webhook path (real ValidatingWebhookConfiguration + cert-manager CA
+# injection over TLS) can't be exercised by envtest, so it gets its own kind
+# job. It runs on demand and whenever the webhook, chart, or entrypoint change.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'internal/controller/webhook.go'
+      - 'cmd/main.go'
+      - 'charts/replikate/**'
+      - 'hack/webhook-smoke-test.sh'
+      - '.github/workflows/webhook-smoke.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: replikate-smoke
+      - name: Run webhook smoke test
+        run: ./hack/webhook-smoke-test.sh
+        env:
+          CLUSTER: replikate-smoke
+          KEEP_CLUSTER: '1' # the runner is ephemeral; skip teardown

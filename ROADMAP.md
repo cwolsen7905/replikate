@@ -53,9 +53,11 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
   different namespaces target one namespace, the copy's owner is honored: a
   copy belonging to a *different* source is left untouched and a `Conflict`
   event is emitted, so the first writer wins instead of a silent clobber war.
-- 🔭 **Live webhook smoke test** — exercise the admission webhook end to end on
-  a `kind` cluster with cert-manager (real `ValidatingWebhookConfiguration` +
-  CA injection), the one path `envtest` can't model, before tagging `1.0`.
+- 🚧 **Live webhook smoke test** — a `kind` + cert-manager script
+  (`make smoke-test`, `hack/webhook-smoke-test.sh`) and a CI job exercise the
+  admission webhook end to end (real `ValidatingWebhookConfiguration` + CA
+  injection over TLS) — the one path `envtest` can't model. Written; awaiting
+  its first green run on a cluster before tagging `1.0`.
 
 ## Later / exploring 💡
 

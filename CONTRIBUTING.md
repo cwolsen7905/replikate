@@ -25,6 +25,11 @@ the `kube-apiserver`/`etcd` binaries into `./bin` on first run. The integration
 tests live behind the `integration` build tag, so plain `make test` stays fast
 and needs no extra binaries.
 
+`make smoke-test` runs the validating webhook end to end on a real
+[kind](https://kind.sigs.k8s.io/) cluster with cert-manager — the one path
+envtest can't model. It needs `kind`, `docker`, `helm`, and `kubectl`; CI also
+runs it (`.github/workflows/webhook-smoke.yaml`) on webhook/chart changes.
+
 ## Development workflow
 
 1. Create a topic branch off `main`.

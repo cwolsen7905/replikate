@@ -8,7 +8,7 @@ SETUP_ENVTEST       := $(LOCALBIN)/setup-envtest
 ENVTEST_VERSION     ?= release-0.19
 ENVTEST_K8S_VERSION ?= 1.31.0
 
-.PHONY: tidy fmt vet build test test-integration run docker-build docker-push deploy undeploy
+.PHONY: tidy fmt vet build test test-integration smoke-test run docker-build docker-push deploy undeploy
 
 tidy: ## Resolve and pin dependencies (writes go.mod/go.sum).
 	go mod tidy
@@ -31,6 +31,9 @@ $(SETUP_ENVTEST):
 test-integration: $(SETUP_ENVTEST) ## Run envtest-backed integration tests (downloads control-plane binaries into ./bin).
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
 		go test -tags integration ./... -count=1
+
+smoke-test: ## Live webhook smoke test on a kind cluster (needs kind, docker, helm, kubectl).
+	./hack/webhook-smoke-test.sh
 
 run: ## Run against the cluster in your current kubeconfig.
 	go run ./cmd --leader-elect=false
