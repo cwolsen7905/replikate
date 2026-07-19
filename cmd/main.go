@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/cwolsen7905/replikate/internal/controller"
 )
@@ -34,6 +35,7 @@ func main() {
 		enableLeaderElection bool
 		annotationDomain     string
 		excludeNamespaces    string
+		enableWebhook        bool
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -44,6 +46,8 @@ func main() {
 	flag.StringVar(&excludeNamespaces, "exclude-namespaces",
 		strings.Join(controller.DefaultExcludedNamespaces, ","),
 		"Comma-separated namespaces that never receive copies; empty excludes none.")
+	flag.BoolVar(&enableWebhook, "enable-webhook", false,
+		"Serve the validating webhook that rejects sources with an invalid sync selector.")
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -78,6 +82,12 @@ func main() {
 	if err := (&controller.SecretReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Secret")
 		os.Exit(1)
+	}
+
+	if enableWebhook {
+		mgr.GetWebhookServer().Register(controller.SelectorWebhookPath,
+			&admission.Webhook{Handler: &controller.SelectorValidator{Keys: controller.NewKeys(annotationDomain)}})
+		setupLog.Info("serving sync-selector validating webhook", "path", controller.SelectorWebhookPath)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

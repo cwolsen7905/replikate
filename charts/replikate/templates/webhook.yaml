@@ -1,0 +1,78 @@
+{{- if .Values.webhook.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "replikate.fullname" . }}-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "replikate.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "replikate.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: webhook
+---
+# Self-signed issuer used to mint the webhook's serving certificate.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "replikate.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "replikate.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "replikate.fullname" . }}-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "replikate.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "replikate.fullname" . }}-webhook-cert
+  dnsNames:
+    - {{ include "replikate.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "replikate.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ include "replikate.fullname" . }}-selfsigned
+    kind: Issuer
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "replikate.fullname" . }}
+  labels:
+    {{- include "replikate.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "replikate.fullname" . }}-webhook
+webhooks:
+  - name: sync-selector.{{ include "replikate.name" . }}.{{ .Values.annotationDomain }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    # Never gate writes in the controller's own namespace or kube-system, so a
+    # webhook outage can't block its own recovery or wedge the control plane.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            - kube-system
+    clientConfig:
+      service:
+        name: {{ include "replikate.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-sync-selector
+        port: 443
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["configmaps", "secrets"]
+        scope: Namespaced
+{{- end }}

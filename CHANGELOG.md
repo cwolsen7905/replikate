@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional validating admission webhook (`--enable-webhook`, chart
+  `webhook.enabled`) that rejects a ConfigMap/Secret whose sync-annotation
+  selector doesn't parse, at apply time instead of only logging it during
+  reconcile. The chart provisions the serving certificate via cert-manager and
+  exempts the controller's own namespace and `kube-system` so a webhook outage
+  can't wedge recovery.
+
 ### Changed
 
 - Namespace changes now look up affected sources through a field index
