@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+### Added
+
+- Namespace exclusions via `--exclude-namespaces` (and the chart's
+  `excludeNamespaces` value): listed namespaces never receive copies, regardless
+  of a source's selector. Defaults to protecting `kube-system`, `kube-public`,
+  and `kube-node-lease`; set to empty to exclude none.
+- Controller test suite (fake-client) covering fan-out, cluster-wide fan-out,
+  config-syncer adoption, refusal to overwrite unmanaged objects, stale-copy
+  removal, finalizer cleanup, and drift correction.
+
+See [ROADMAP.md](ROADMAP.md) for what's planned next.
 
 ## [0.2.0] - 2026-07-17
 

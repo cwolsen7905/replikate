@@ -30,7 +30,7 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 
 - 🔭 **Prometheus metrics** (copies managed, reconcile errors, adoptions) plus a
   chart `ServiceMonitor`.
-- 🔭 **Namespace exclusions** — `--exclude-namespaces`, defaulting to protect
+- ✅ **Namespace exclusions** — `--exclude-namespaces`, defaulting to protect
   system namespaces.
 - ✅ **Test suite** — controller tests covering fan-out, adoption, cleanup, and
   drift before a `1.0` line.

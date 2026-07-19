@@ -13,6 +13,13 @@ imagePullSecrets: []
 # controller under your own domain (sources are then annotated <domain>/sync).
 annotationDomain: replikate.brainchurts.com
 
+# Namespaces that never receive copies, regardless of a source's selector.
+# Defaults protect the cluster's system namespaces; set to [] to exclude none.
+excludeNamespaces:
+  - kube-system
+  - kube-public
+  - kube-node-lease
+
 leaderElection:
   enabled: true
 

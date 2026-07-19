@@ -222,6 +222,40 @@ func TestReconcile_FinalizerCleanupOnDelete(t *testing.T) {
 	}
 }
 
+func TestReconcile_SkipsExcludedNamespaces(t *testing.T) {
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		ns("web-a", map[string]string{"team": "web"}),
+		ns("kube-system", map[string]string{"team": "web"}), // matches, but excluded
+		sourceCM("cfg", "default", "team=web", map[string]string{"k": "v"}),
+	)
+	s.ExcludeNamespaces = map[string]bool{"kube-system": true}
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	if _, ok := getCM(t, s, "web-a", "cfg"); !ok {
+		t.Error("expected copy in non-excluded namespace web-a")
+	}
+	if _, ok := getCM(t, s, "kube-system", "cfg"); ok {
+		t.Error("did not expect a copy in excluded namespace kube-system")
+	}
+}
+
+func TestNamespaceSet(t *testing.T) {
+	got := NamespaceSet(" kube-system, kube-public ,,kube-node-lease ")
+	want := map[string]bool{"kube-system": true, "kube-public": true, "kube-node-lease": true}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %v, want %v", got, want)
+	}
+	for k := range want {
+		if !got[k] {
+			t.Errorf("missing %q in parsed set %v", k, got)
+		}
+	}
+	if NamespaceSet("") != nil || NamespaceSet("  , ") != nil {
+		t.Error("empty/blank input should yield a nil set")
+	}
+}
+
 func TestReconcile_RestoresDriftedCopy(t *testing.T) {
 	s, _ := newTestSyncer(
 		ns("default", nil),
