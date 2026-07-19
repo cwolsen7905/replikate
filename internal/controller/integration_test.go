@@ -16,14 +16,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-var testCfg *rest.Config
+// k8sClient is a direct (uncached) client used for strong reads in assertions.
+// The manager is started once for the whole package in TestMain — controller
+// names are process-global (they register metrics), so a manager-per-test would
+// collide on the second start.
+var k8sClient client.Client
 
 func TestMain(m *testing.M) {
 	env := &envtest.Environment{}
@@ -31,23 +34,13 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic("start envtest (is KUBEBUILDER_ASSETS set?): " + err.Error())
 	}
-	testCfg = cfg
-	code := m.Run()
-	_ = env.Stop()
-	os.Exit(code)
-}
 
-// startManager wires both reconcilers onto a manager and runs it until the
-// returned cancel func is called. It returns a direct (uncached) client for
-// strong reads in assertions.
-func startManager(t *testing.T) (client.Client, context.CancelFunc) {
-	t.Helper()
-	mgr, err := ctrl.NewManager(testCfg, ctrl.Options{
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Metrics:        metricsserver.Options{BindAddress: "0"},
 		LeaderElection: false,
 	})
 	if err != nil {
-		t.Fatalf("new manager: %v", err)
+		panic("new manager: " + err.Error())
 	}
 	_ = clientgoscheme.AddToScheme(mgr.GetScheme())
 
@@ -58,30 +51,27 @@ func startManager(t *testing.T) (client.Client, context.CancelFunc) {
 		ExcludeNamespaces: NamespaceSet("kube-system,kube-public,kube-node-lease"),
 	}
 	if err := (&ConfigMapReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
-		t.Fatalf("setup configmap: %v", err)
+		panic("setup configmap: " + err.Error())
 	}
 	if err := (&SecretReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
-		t.Fatalf("setup secret: %v", err)
+		panic("setup secret: " + err.Error())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		if err := mgr.Start(ctx); err != nil {
-			// Start returns non-nil on abnormal exit; cancel path returns nil.
-			t.Logf("manager exited: %v", err)
-		}
-	}()
+	go func() { _ = mgr.Start(ctx) }()
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
-		cancel()
-		t.Fatal("cache failed to sync")
+		panic("cache failed to sync")
 	}
 
-	k8s, err := client.New(testCfg, client.Options{Scheme: mgr.GetScheme()})
+	k8sClient, err = client.New(cfg, client.Options{Scheme: mgr.GetScheme()})
 	if err != nil {
-		cancel()
-		t.Fatalf("direct client: %v", err)
+		panic("direct client: " + err.Error())
 	}
-	return k8s, cancel
+
+	code := m.Run()
+	cancel()
+	_ = env.Stop()
+	os.Exit(code)
 }
 
 func eventually(t *testing.T, cond func() bool, msg string) {
@@ -115,8 +105,7 @@ func copyExists(k8s client.Client, namespace, name string) bool {
 // end to end: selector fan-out, drift restore, and — via the field indexer —
 // fan-out to a namespace created after the source.
 func TestIntegration_FanOutDriftAndNamespaceAdd(t *testing.T) {
-	k8s, cancel := startManager(t)
-	defer cancel()
+	k8s := k8sClient
 	ctx := context.Background()
 
 	mkNamespace(t, k8s, "web-1", map[string]string{"team": "web"})
@@ -156,5 +145,56 @@ func TestIntegration_FanOutDriftAndNamespaceAdd(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	if copyExists(k8s, "db-1", "app-config") {
 		t.Error("copy should not exist in non-matching namespace db-1")
+	}
+}
+
+// TestIntegration_SameNameSourcesDoNotFight verifies the conflict guard against
+// a live API server: two same-named sources in different namespaces that both
+// target one namespace must not overwrite each other's copy in a loop.
+func TestIntegration_SameNameSourcesDoNotFight(t *testing.T) {
+	k8s := k8sClient
+	ctx := context.Background()
+	keys := NewKeys(DefaultDomain)
+
+	mkNamespace(t, k8s, "owner-ns", nil)
+	mkNamespace(t, k8s, "rival-ns", nil)
+	mkNamespace(t, k8s, "shared-target", map[string]string{"tier": "shared"})
+
+	newSource := func(namespace, val string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "creds",
+				Namespace:   namespace,
+				Annotations: map[string]string{keys.SyncAnnotation: "tier=shared"},
+			},
+			Data: map[string]string{"who": val},
+		}
+	}
+
+	// First source wins ownership of the copy in shared-target.
+	if err := k8s.Create(ctx, newSource("owner-ns", "owner")); err != nil {
+		t.Fatalf("create owner source: %v", err)
+	}
+	eventually(t, func() bool { return copyExists(k8s, "shared-target", "creds") },
+		"copy created by the first source")
+
+	// Second, same-named source appears and also targets shared-target.
+	if err := k8s.Create(ctx, newSource("rival-ns", "rival")); err != nil {
+		t.Fatalf("create rival source: %v", err)
+	}
+
+	// Give both reconcile loops ample time to run, then assert the copy still
+	// belongs to the first source and was never flipped to the rival.
+	time.Sleep(2 * time.Second)
+	var copy corev1.ConfigMap
+	if err := k8s.Get(ctx, types.NamespacedName{Namespace: "shared-target", Name: "creds"}, &copy); err != nil {
+		t.Fatalf("get copy: %v", err)
+	}
+	if copy.Data["who"] != "owner" {
+		t.Errorf("copy content was clobbered by the rival source: %v", copy.Data)
+	}
+	if copy.Labels[keys.OriginNSLabel] != "owner-ns" {
+		t.Errorf("copy ownership flipped to the rival: origin-namespace=%q",
+			copy.Labels[keys.OriginNSLabel])
 	}
 }

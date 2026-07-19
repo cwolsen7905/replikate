@@ -182,6 +182,41 @@ func TestReconcile_RefusesUnmanagedObject(t *testing.T) {
 	}
 }
 
+func TestReconcile_RefusesCopyOwnedByAnotherSource(t *testing.T) {
+	// A managed copy already owned by source other/cfg sits in web-a.
+	owned := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cfg",
+			Namespace: "web-a",
+			Labels: map[string]string{
+				testKeys.ManagedByLabel:  ManagedByValue,
+				testKeys.OriginNSLabel:   "other",
+				testKeys.OriginNameLabel: "cfg",
+			},
+		},
+		Data: map[string]string{"k": "OWNED-BY-OTHER"},
+	}
+	// A second, same-named source in "default" also targets web-a.
+	s, rec := newTestSyncer(
+		ns("default", nil),
+		ns("web-a", map[string]string{"team": "web"}),
+		owned,
+		sourceCM("cfg", "default", "team=web", map[string]string{"k": "MINE"}),
+	)
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	cm, _ := getCM(t, s, "web-a", "cfg")
+	if cm.Data["k"] != "OWNED-BY-OTHER" {
+		t.Errorf("copy owned by another source was overwritten: %v", cm.Data)
+	}
+	if cm.Labels[testKeys.OriginNSLabel] != "other" {
+		t.Errorf("origin labels were rewritten by the losing source: %v", cm.Labels)
+	}
+	if !hasEvent(rec, "Conflict") {
+		t.Error("expected a Conflict event when refusing to overwrite another source's copy")
+	}
+}
+
 func TestReconcile_RemovesStaleCopyOnSelectorChange(t *testing.T) {
 	s, _ := newTestSyncer(
 		ns("default", nil),

@@ -186,6 +186,20 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) (
 		return actionNone, nil
 	}
 
+	// A managed copy that belongs to a different source (a same-named source in
+	// another namespace) must be left alone, or the two sources would overwrite
+	// each other's copy on every reconcile. First writer wins; the loser gets a
+	// Conflict event instead of a silent clobber war.
+	if managed && !s.Keys.ownsCopy(existing, src) {
+		owner := existing.GetLabels()
+		l.Info("refusing to overwrite copy owned by another source", "namespace", ns, "name", src.GetName(),
+			"owner", owner[s.Keys.OriginNSLabel]+"/"+owner[s.Keys.OriginNameLabel])
+		s.Recorder.Eventf(src, corev1.EventTypeWarning, "Conflict",
+			"Refusing to overwrite %s/%s owned by source %s/%s",
+			ns, src.GetName(), owner[s.Keys.OriginNSLabel], owner[s.Keys.OriginNameLabel])
+		return actionNone, nil
+	}
+
 	before := existing.DeepCopyObject().(client.Object)
 	s.Keys.applyCopyMeta(src, existing)
 	copyContents(src, existing)

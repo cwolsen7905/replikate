@@ -11,8 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - envtest-backed integration tests (`make test-integration`, behind the
   `integration` build tag) that run the real manager against a live API server,
-  covering selector fan-out, drift restore, and field-indexer-driven fan-out to
-  namespaces created after the source.
+  covering selector fan-out, drift restore, field-indexer-driven fan-out to
+  namespaces created after the source, and the same-name source conflict guard.
+
+### Fixed
+
+- Two sources with the same name in different namespaces that both target one
+  namespace no longer overwrite each other's copy on every reconcile. A managed
+  copy owned by a different source is now left untouched and a `Conflict` event
+  is emitted, so the first writer keeps ownership instead of a clobber war.
 
 ## [0.4.0] - 2026-07-18
 
