@@ -13,6 +13,13 @@ imagePullSecrets: []
 # controller under your own domain (sources are then annotated <domain>/sync).
 annotationDomain: replikate.brainchurts.com
 
+# Namespaces that never receive copies, regardless of a source's selector.
+# Defaults protect the cluster's system namespaces; set to [] to exclude none.
+excludeNamespaces:
+  - kube-system
+  - kube-public
+  - kube-node-lease
+
 leaderElection:
   enabled: true
 
@@ -31,7 +38,35 @@ resources:
     cpu: 200m
     memory: 128Mi
 
+metrics:
+  # A ClusterIP Service exposing the controller's Prometheus metrics.
+  service:
+    enabled: true
+    port: 8080
+  # A Prometheus Operator ServiceMonitor scraping that Service. Requires the
+  # monitoring.coreos.com CRDs; leave disabled if the Operator isn't installed.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: ""
+    # Namespace to create the ServiceMonitor in (defaults to the release namespace).
+    namespace: ""
+    # Extra labels, e.g. to match your Prometheus serviceMonitorSelector.
+    labels: {}
+
+# PodDisruptionBudget for the controller. Only meaningful with replicaCount > 1
+# and leaderElection enabled.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1  # set instead of minAvailable
+
+# Scheduling priority for the controller pods.
+priorityClassName: ""
+
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
+# Pod affinity/anti-affinity. To spread replicas across nodes, set a
+# podAntiAffinity here keyed on the chart's selector labels.
 affinity: {}

@@ -22,7 +22,9 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.Get(ctx, req.NamespacedName, &sec); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	return r.reconcileSource(ctx, &sec)
+	res, err := r.reconcileSource(ctx, &sec)
+	observeReconcile("secret", err)
+	return res, err
 }
 
 // SetupWithManager wires the controller. It reconciles source Secrets,

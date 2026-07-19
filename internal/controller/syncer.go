@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,6 +22,30 @@ type Syncer struct {
 	client.Client
 	Keys     Keys
 	Recorder record.EventRecorder
+	// ExcludeNamespaces is the set of namespaces that never receive copies,
+	// regardless of a source's selector. It protects system namespaces by
+	// default; a nil or empty set excludes nothing.
+	ExcludeNamespaces map[string]bool
+}
+
+// DefaultExcludedNamespaces are the namespaces Replikate refuses to replicate
+// into unless the operator overrides the exclusion list.
+var DefaultExcludedNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
+
+// NamespaceSet parses a comma-separated namespace list into a lookup set,
+// ignoring blank and whitespace-only entries. It returns nil for an empty list
+// so the caller excludes nothing.
+func NamespaceSet(csv string) map[string]bool {
+	set := map[string]bool{}
+	for _, ns := range strings.Split(csv, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			set[ns] = true
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
 }
 
 // action describes what upsertCopy did to a single target, for event summaries.
@@ -81,6 +106,9 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 		if ns.Name == obj.GetNamespace() || ns.DeletionTimestamp != nil {
 			continue // never copy into the source's own or a terminating namespace
 		}
+		if s.ExcludeNamespaces[ns.Name] {
+			continue // operator-excluded (system namespaces by default)
+		}
 		if selector.Matches(labels.Set(ns.Labels)) {
 			targets[ns.Name] = true
 		}
@@ -95,6 +123,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 		}
 		if act != actionNone {
 			changed++
+			copyOperationsTotal.WithLabelValues(kindOf(obj), operationFor(act)).Inc()
 		}
 	}
 
@@ -199,6 +228,7 @@ func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[s
 		if err := s.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
 			return n, err
 		}
+		copyOperationsTotal.WithLabelValues(kindOf(src), "deleted").Inc()
 		n++
 	}
 	return n, nil

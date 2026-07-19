@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
 
+## [0.3.0] - 2026-07-18
+
+### Added
+
+- Namespace exclusions via `--exclude-namespaces` (and the chart's
+  `excludeNamespaces` value): listed namespaces never receive copies, regardless
+  of a source's selector. Defaults to protecting `kube-system`, `kube-public`,
+  and `kube-node-lease`; set to empty to exclude none.
+- Prometheus metrics exposed on the existing metrics endpoint:
+  `replikate_reconcile_total{kind,result}` and
+  `replikate_copy_operations_total{kind,operation}`. The chart now ships a
+  metrics `Service` and an optional `ServiceMonitor`
+  (`metrics.serviceMonitor.enabled`).
+- Chart hardening: optional `PodDisruptionBudget`
+  (`podDisruptionBudget.enabled`), `priorityClassName`, and documented pod
+  anti-affinity via the existing `affinity` value.
+- Controller test suite (fake-client) covering fan-out, cluster-wide fan-out,
+  config-syncer adoption, refusal to overwrite unmanaged objects, stale-copy
+  removal, finalizer cleanup, drift correction, namespace exclusion, and metric
+  recording.
+
 ## [0.2.0] - 2026-07-17
 
 ### Added
@@ -58,6 +79,7 @@ Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cwolsen7905/replikate/releases/tag/v0.1.0

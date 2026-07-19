@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"os"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -32,6 +33,7 @@ func main() {
 		probeAddr            string
 		enableLeaderElection bool
 		annotationDomain     string
+		excludeNamespaces    string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -39,6 +41,9 @@ func main() {
 		"Enable leader election, ensuring only one active manager.")
 	flag.StringVar(&annotationDomain, "annotation-domain", controller.DefaultDomain,
 		"Annotation/label key prefix Replikate watches for (e.g. \"replikate.brainchurts.com\").")
+	flag.StringVar(&excludeNamespaces, "exclude-namespaces",
+		strings.Join(controller.DefaultExcludedNamespaces, ","),
+		"Comma-separated namespaces that never receive copies; empty excludes none.")
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -58,11 +63,13 @@ func main() {
 	}
 
 	syncer := &controller.Syncer{
-		Client:   mgr.GetClient(),
-		Keys:     controller.NewKeys(annotationDomain),
-		Recorder: mgr.GetEventRecorderFor("replikate"),
+		Client:            mgr.GetClient(),
+		Keys:              controller.NewKeys(annotationDomain),
+		Recorder:          mgr.GetEventRecorderFor("replikate"),
+		ExcludeNamespaces: controller.NamespaceSet(excludeNamespaces),
 	}
 	setupLog.Info("using annotation domain", "domain", annotationDomain)
+	setupLog.Info("excluding namespaces", "namespaces", excludeNamespaces)
 
 	if err := (&controller.ConfigMapReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
