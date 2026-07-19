@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+
+## [0.3.0] - 2026-07-18
+
 ### Added
 
 - Namespace exclusions via `--exclude-namespaces` (and the chart's
@@ -25,8 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   config-syncer adoption, refusal to overwrite unmanaged objects, stale-copy
   removal, finalizer cleanup, drift correction, namespace exclusion, and metric
   recording.
-
-See [ROADMAP.md](ROADMAP.md) for what's planned next.
 
 ## [0.2.0] - 2026-07-17
 
@@ -77,6 +79,7 @@ See [ROADMAP.md](ROADMAP.md) for what's planned next.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cwolsen7905/replikate/releases/tag/v0.1.0
