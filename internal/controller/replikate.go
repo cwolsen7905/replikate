@@ -69,6 +69,14 @@ func (k Keys) isManagedCopy(obj client.Object) bool {
 	return obj.GetLabels()[k.ManagedByLabel] == ManagedByValue
 }
 
+// ownsCopy reports whether the managed copy's origin labels point back at src,
+// i.e. src is the source this copy belongs to. Used to keep two same-named
+// sources in different namespaces from overwriting each other's copies.
+func (k Keys) ownsCopy(copy, src client.Object) bool {
+	ls := copy.GetLabels()
+	return ls[k.OriginNSLabel] == src.GetNamespace() && ls[k.OriginNameLabel] == src.GetName()
+}
+
 // applyCopyMeta mirrors the source's labels and annotations onto a copy (minus
 // Replikate's own keys) and stamps the managed-copy labels used for lookups.
 func (k Keys) applyCopyMeta(src, dst client.Object) {
