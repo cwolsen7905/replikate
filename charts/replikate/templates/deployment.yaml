@@ -41,11 +41,18 @@ spec:
             - --exclude-namespaces={{ join "," .Values.excludeNamespaces }}
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8080
+            {{- if .Values.webhook.enabled }}
+            - --enable-webhook=true
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
             - name: health
               containerPort: 8081
+            {{- if .Values.webhook.enabled }}
+            - name: webhook
+              containerPort: {{ .Values.webhook.port }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -66,6 +73,18 @@ spec:
               drop: ["ALL"]
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.webhook.enabled }}
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+          {{- end }}
+      {{- if .Values.webhook.enabled }}
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "replikate.fullname" . }}-webhook-cert
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -37,16 +37,22 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 - ✅ **Chart hardening** — `PodDisruptionBudget`, `priorityClassName`, and node
   anti-affinity options.
 
+## v0.4.0 — 1.0 readiness 🚧 (next)
+
+- ✅ **Source lookup via a field indexer** — a namespace change now resolves
+  affected sources in O(sources) instead of scanning every object.
+- ✅ **Validating admission webhook** — rejects a source whose sync selector
+  doesn't parse at apply time, rather than only logging it during reconcile.
+
 ## Later / exploring 💡
 
 - 💡 **Cross-cluster replication** via kubeconfig contexts.
-- 💡 **Validating admission webhook** to reject invalid selectors at apply time.
-- 💡 **Source lookup via a field indexer** for O(matching) instead of O(all)
-  scans on large clusters.
 - 💡 Replicate additional resource kinds beyond ConfigMaps and Secrets.
 
 ## Toward 1.0
 
 `1.0.0` means the annotation contract and behavior are considered stable, with
-meaningful test coverage and the observability pieces above in place. Until
-then, `0.x` releases may change behavior between minor versions.
+meaningful test coverage and the observability pieces above in place. With the
+test suite, metrics, field indexer, and selector webhook now in place, the
+remaining step is declaring the `<domain>/sync` contract frozen. Until then,
+`0.x` releases may change behavior between minor versions.

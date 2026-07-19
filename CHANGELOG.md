@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
 
+## [0.4.0] - 2026-07-18
+
+### Added
+
+- Optional validating admission webhook (`--enable-webhook`, chart
+  `webhook.enabled`) that rejects a ConfigMap/Secret whose sync-annotation
+  selector doesn't parse, at apply time instead of only logging it during
+  reconcile. The chart provisions the serving certificate via cert-manager and
+  exempts the controller's own namespace and `kube-system` so a webhook outage
+  can't wedge recovery.
+
+### Changed
+
+- Namespace changes now look up affected sources through a field index
+  (`replikate.source`) instead of listing every ConfigMap/Secret in the
+  cluster, so fan-out scales with the number of sources rather than the total
+  object count.
+
 ## [0.3.0] - 2026-07-18
 
 ### Added
@@ -79,7 +97,8 @@ Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cwolsen7905/replikate/releases/tag/v0.1.0

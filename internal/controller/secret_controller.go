@@ -31,6 +31,10 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // re-drives all sources when a namespace changes, and re-drives the source when
 // one of its managed copies is edited or deleted (drift correction).
 func (r *SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(), &corev1.Secret{}, SourceIndexField, r.indexSource); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Secret{}, builder.WithPredicates(r.sourcePredicate())).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(

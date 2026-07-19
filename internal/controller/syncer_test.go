@@ -23,7 +23,16 @@ func newTestSyncer(objs ...client.Object) (*Syncer, *record.FakeRecorder) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	rec := record.NewFakeRecorder(100)
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	index := func(o client.Object) []string {
+		if testKeys.isSource(o) {
+			return []string{sourceIndexTrue}
+		}
+		return nil
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithIndex(&corev1.ConfigMap{}, SourceIndexField, index).
+		WithIndex(&corev1.Secret{}, SourceIndexField, index).
+		WithObjects(objs...).Build()
 	return &Syncer{Client: c, Keys: testKeys, Recorder: rec}, rec
 }
 
@@ -290,6 +299,31 @@ func TestReconcile_RestoresDriftedCopy(t *testing.T) {
 	reconcileConfigMap(t, s, "default", "cfg")
 	if _, ok := getCM(t, s, "web-a", "cfg"); !ok {
 		t.Error("deleted copy should have been recreated")
+	}
+}
+
+func TestSourceRequests_ReturnsOnlySources(t *testing.T) {
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		sourceCM("src-a", "default", "team=web", map[string]string{"k": "v"}),
+		sourceCM("src-b", "team-ns", "", map[string]string{"k": "v"}),
+		// A plain ConfigMap with no sync annotation must not be indexed as a source.
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "plain", Namespace: "default"}},
+	)
+
+	reqs := s.sourceRequests(context.Background(), &corev1.ConfigMapList{})
+	if len(reqs) != 2 {
+		t.Fatalf("expected 2 source requests, got %d: %v", len(reqs), reqs)
+	}
+	got := map[string]bool{}
+	for _, r := range reqs {
+		got[r.Namespace+"/"+r.Name] = true
+	}
+	if !got["default/src-a"] || !got["team-ns/src-b"] {
+		t.Errorf("missing expected sources: %v", got)
+	}
+	if got["default/plain"] {
+		t.Error("non-source ConfigMap should not appear in source requests")
 	}
 }
 
