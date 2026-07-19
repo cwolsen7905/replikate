@@ -44,7 +44,7 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 - ✅ **Validating admission webhook** — rejects a source whose sync selector
   doesn't parse at apply time, rather than only logging it during reconcile.
 
-## v0.5.0 — Correctness & 1.0 hardening 🚧 (next)
+## v1.0.0 — Correctness & stability ✅
 
 - ✅ **Integration tests** — an `envtest`-backed suite runs the real manager
   against a live API server, covering fan-out, drift restore, and
@@ -53,11 +53,10 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
   different namespaces target one namespace, the copy's owner is honored: a
   copy belonging to a *different* source is left untouched and a `Conflict`
   event is emitted, so the first writer wins instead of a silent clobber war.
-- 🚧 **Live webhook smoke test** — a `kind` + cert-manager script
+- ✅ **Live webhook smoke test** — a `kind` + cert-manager script
   (`make smoke-test`, `hack/webhook-smoke-test.sh`) and a CI job exercise the
   admission webhook end to end (real `ValidatingWebhookConfiguration` + CA
-  injection over TLS) — the one path `envtest` can't model. Written; awaiting
-  its first green run on a cluster before tagging `1.0`.
+  injection over TLS) — the one path `envtest` can't model. Green in CI.
 
 ## Later / exploring 💡
 
@@ -66,11 +65,13 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
   annotation contract.
 - 💡 Replicate additional resource kinds beyond ConfigMaps and Secrets.
 
-## Toward 1.0
+## 1.0 and the stable contract
 
-`1.0.0` means the annotation contract and behavior are considered stable, with
-meaningful test coverage and the observability pieces above in place. The test
-suite, metrics, field indexer, selector webhook, integration tests, and the
-same-name conflict guard are in place; the one remaining gate is a **live
-webhook smoke test**, after which the `<domain>/sync` contract can be declared
-frozen. Until then, `0.x` releases may change behavior between minor versions.
+As of **1.0.0**, the `<domain>/sync` annotation contract and Replikate's
+replication behavior are considered **stable**: the annotation shape, the
+managed-copy labels, and the fan-out/cleanup semantics won't change in a
+backward-incompatible way without a `2.0`. Everything the 1.0 line required —
+a real test suite, metrics, the field indexer, the selector webhook,
+envtest integration tests, the same-name conflict guard, and a green live
+webhook smoke test — is in place. Post-1.0 work (the 💡 items above) is
+additive and won't break existing sources.

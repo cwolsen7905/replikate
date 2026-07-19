@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+
+## [1.0.0] - 2026-07-19
+
+First stable release. As of 1.0.0 the `replikate.brainchurts.com/sync`
+annotation contract, the managed-copy labels, and the fan-out/cleanup
+semantics are considered stable and won't change incompatibly without a 2.0.
+
 ### Added
 
 - envtest-backed integration tests (`make test-integration`, behind the
@@ -114,7 +122,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/cwolsen7905/replikate/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...v0.2.0

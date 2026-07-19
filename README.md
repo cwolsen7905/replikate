@@ -75,11 +75,11 @@ make run      # run against your current kubeconfig (out-of-cluster)
 
 Requires Go 1.23+, and Docker (with buildx/QEMU for multi-arch) + Helm for the image/deploy targets. The container is a `distroless/static:nonroot` image; RBAC and the Deployment ship in `charts/replikate`.
 
-## Scope & limitations (MVP)
+## Scope & limitations
 
-- Replicates **ConfigMaps and Secrets** by annotation, intra-cluster only. Cross-cluster sync is a planned follow-up.
-- A manually-edited replica is corrected on the next source change or the controller's periodic resync, not instantly.
-- If two sources with the same name in different namespaces target the same namespace, their copies collide on name; give such sources distinct names.
+- Replicates **ConfigMaps and Secrets** by annotation, **intra-cluster only**. Cross-cluster sync is a planned follow-up (see [ROADMAP.md](ROADMAP.md)).
+- A manually-edited or deleted replica is restored **near-instantly** — managed copies are watched, not left until the next resync.
+- If two sources with the same name in different namespaces target the same namespace, the first to create the copy keeps it: Replikate refuses to overwrite a copy owned by another source and emits a `Conflict` event, rather than the two fighting over it.
 
 ## License
 
