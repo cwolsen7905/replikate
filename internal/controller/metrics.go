@@ -27,7 +27,7 @@ var (
 
 	remoteCopyOperationsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "replikate_remote_copy_operations_total",
-		Help: "Total copy operations performed on spoke clusters, labeled by cluster and operation (created, updated, adopted).",
+		Help: "Total copy operations performed on spoke clusters, labeled by cluster and operation (created, updated, adopted, deleted).",
 	}, []string{"cluster", "operation"})
 )
 

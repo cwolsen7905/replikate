@@ -33,7 +33,10 @@ type ClusterCredentialReconciler struct {
 	Namespace string // the namespace credential Secrets live in
 	// HubHost is the hub's own API server URL. A credential pointing at it is
 	// rejected: replicating into the hub-as-a-spoke would make the controller
-	// treat its own local copies as remote and delete them.
+	// treat its own local copies as remote and delete them. This is an exact
+	// host-string check — it catches the obvious mistake, but a credential that
+	// reaches the same cluster via a different URL (external LB, IP vs DNS) can
+	// still slip through. A robust cluster-UID identity check is a pass-3 item.
 	HubHost string
 }
 

@@ -4,12 +4,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // registryWith builds a ClusterRegistry backed by the given in-memory spoke
@@ -164,5 +166,54 @@ func TestReconcile_CrossClusterUnknownClusterEvent(t *testing.T) {
 
 	if !hasEvent(rec, "UnknownCluster") {
 		t.Error("expected an UnknownCluster event for a target that isn't registered")
+	}
+}
+
+func TestReconcile_CrossClusterRequeuesOnUnknownCluster(t *testing.T) {
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		sourceWithTargets("cfg", "default", "ghost", map[string]string{"k": "v"}),
+	)
+	s.Registry = registryWith(map[string]client.Client{"spoke-a": newSpoke()})
+
+	// Drive to steady state, capturing the last result: an unresolved target
+	// must requeue so it self-heals when the credential appears.
+	r := &ConfigMapReconciler{Syncer: s}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "cfg"}}
+	var last reconcile.Result
+	for i := 0; i < 5; i++ {
+		res, err := r.Reconcile(context.Background(), req)
+		if err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+		last = res
+	}
+	if last.RequeueAfter != remoteRetryInterval {
+		t.Errorf("expected RequeueAfter=%v on an unresolved target, got %v", remoteRetryInterval, last.RequeueAfter)
+	}
+}
+
+func TestReconcile_CrossClusterRemoteDeleteMetric(t *testing.T) {
+	spoke := newSpoke()
+	before := testutil.ToFloat64(remoteCopyOperationsTotal.WithLabelValues("spoke-a", "deleted"))
+
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke-a", map[string]string{"k": "v"}),
+	)
+	s.Registry = registryWith(map[string]client.Client{"spoke-a": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	// Drop the target so the remote copy is pruned; that delete must land on the
+	// per-cluster remote metric, not the local copy-operations counter.
+	src, _ := getCM(t, s, "default", "cfg")
+	src.Annotations[testKeys.TargetClustersAnnotation] = ""
+	if err := s.Update(context.Background(), src); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	if got := testutil.ToFloat64(remoteCopyOperationsTotal.WithLabelValues("spoke-a", "deleted")) - before; got != 1 {
+		t.Errorf("expected 1 remote delete recorded for spoke-a, got %v", got)
 	}
 }

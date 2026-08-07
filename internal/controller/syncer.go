@@ -142,6 +142,9 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	if err != nil {
 		return reconcile.Result{}, err
 	}
+	if deleted > 0 {
+		copyOperationsTotal.WithLabelValues(kindOf(obj), "deleted").Add(float64(deleted))
+	}
 
 	if changed > 0 || deleted > 0 {
 		s.Recorder.Eventf(obj, corev1.EventTypeNormal, "Replicated",
@@ -171,8 +174,10 @@ func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Objec
 	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
 		return nil
 	}
-	if _, err := s.deleteCopies(ctx, s.Client, obj, nil); err != nil {
+	if n, err := s.deleteCopies(ctx, s.Client, obj, nil); err != nil {
 		return err
+	} else if n > 0 {
+		copyOperationsTotal.WithLabelValues(kindOf(obj), "deleted").Add(float64(n))
 	}
 	// Also remove any copies we placed in spoke clusters.
 	if s.Registry != nil {
@@ -273,7 +278,6 @@ func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.
 		if err := cl.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
 			return n, err
 		}
-		copyOperationsTotal.WithLabelValues(kindOf(src), "deleted").Inc()
 		n++
 	}
 	return n, nil

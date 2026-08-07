@@ -21,7 +21,10 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 	targets := NamespaceSet(src.GetAnnotations()[s.Keys.TargetClustersAnnotation])
 
 	// Warn about targeted clusters that aren't registered, so a typo or a
-	// missing credential is visible rather than silent.
+	// missing credential is visible rather than silent. Treated as a failure so
+	// the source is requeued: this self-heals once the spoke's credential is
+	// added (there is no credential->source watch yet — a pass-3 item that would
+	// let us stop polling here). The cost of a genuine typo is a repeating event.
 	for id := range targets {
 		if _, ok := s.Registry.ClientFor(id); !ok {
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "UnknownCluster",
@@ -50,11 +53,13 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 				s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
 					"Replicated to cluster %q", id)
 			}
-		} else if _, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
+		} else if n, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
 			l.Error(err, "cross-cluster cleanup failed", "cluster", id)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 				"Removing copies from cluster %q failed: %v", id, err)
 			failed = true
+		} else if n > 0 {
+			remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
 		}
 	}
 	return failed
@@ -72,10 +77,12 @@ func (s *Syncer) deleteRemoteCopies(ctx context.Context, src client.Object) erro
 		if !ok {
 			continue
 		}
-		if _, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
+		if n, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
 			l.Error(err, "cross-cluster cleanup on delete failed", "cluster", id)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 				"Removing copies from cluster %q on delete failed: %v", id, err)
+		} else if n > 0 {
+			remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
 		}
 	}
 	return nil
