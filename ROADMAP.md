@@ -60,13 +60,20 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 
 ## Later / exploring 💡
 
-- 🔭 **Cross-cluster replication** (hub-and-spoke) — replicate a source into
+- 🚧 **Cross-cluster replication** (hub-and-spoke) — replicate a source into
   selected namespaces of other clusters via a new, optional
   `target-clusters` annotation and labeled per-spoke credential Secrets.
   Additive (existing sources are unaffected), so it lands in a 1.x minor. See
   the design doc — [`docs/design/cross-cluster-replication.md`](docs/design/cross-cluster-replication.md) — for the topology,
-  contract extension, and the four-phase plan (registry → fan-out → remote
-  drift → webhook/metrics). The largest open item from the launch write-up.
+  contract extension, and the four-phase plan. The largest open item from the
+  launch write-up.
+  - ✅ **Phase 1 — cluster registry** (`--enable-cross-cluster`): discover
+    spokes from labeled credential Secrets, build a client per spoke, health
+    check + `replikate_cluster_up` gauge, spoke RBAC in `deploy/spoke-rbac.yaml`.
+  - 🔭 **Phase 2 — cross-cluster fan-out** (resync-only): `target-clusters`
+    annotation, per-cluster upsert/cleanup, `origin-cluster` label.
+  - 🔭 **Phase 3 — remote drift correction**: per-spoke managed-copy watch.
+  - 🔭 **Phase 4 — webhook + metrics + packaging.**
 - 💡 Replicate additional resource kinds beyond ConfigMaps and Secrets.
 
 ## 1.0 and the stable contract

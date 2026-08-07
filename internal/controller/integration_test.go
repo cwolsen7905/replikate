@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -26,10 +27,19 @@ import (
 // The manager is started once for the whole package in TestMain — controller
 // names are process-global (they register metrics), so a manager-per-test would
 // collide on the second start.
-var k8sClient client.Client
+var (
+	k8sClient    client.Client
+	testEnv      *envtest.Environment
+	testRegistry *ClusterRegistry
+)
+
+// credentialNS is the namespace the cluster-credential reconciler watches in
+// the integration tests.
+const credentialNS = "replikate-system"
 
 func TestMain(m *testing.M) {
-	env := &envtest.Environment{}
+	testEnv = &envtest.Environment{}
+	env := testEnv
 	cfg, err := env.Start()
 	if err != nil {
 		panic("start envtest (is KUBEBUILDER_ASSETS set?): " + err.Error())
@@ -55,6 +65,18 @@ func TestMain(m *testing.M) {
 	}
 	if err := (&SecretReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
 		panic("setup secret: " + err.Error())
+	}
+
+	testRegistry = NewClusterRegistry(func(c *rest.Config, _ string) (client.Client, error) {
+		return client.New(c, client.Options{Scheme: mgr.GetScheme()})
+	})
+	if err := (&ClusterCredentialReconciler{
+		Client:    mgr.GetClient(),
+		Registry:  testRegistry,
+		Recorder:  mgr.GetEventRecorderFor("replikate-cluster"),
+		Namespace: credentialNS,
+	}).SetupWithManager(mgr); err != nil {
+		panic("setup cluster-credential: " + err.Error())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -197,4 +219,61 @@ func TestIntegration_SameNameSourcesDoNotFight(t *testing.T) {
 		t.Errorf("copy ownership flipped to the rival: origin-namespace=%q",
 			copy.Labels[keys.OriginNSLabel])
 	}
+}
+
+// TestIntegration_ClusterRegistry registers a spoke against a live API server:
+// a credential Secret whose kubeconfig points back at the envtest cluster (self
+// as spoke) should be discovered, its client should pass the connectivity
+// check, and removing the Secret should deregister it.
+func TestIntegration_ClusterRegistry(t *testing.T) {
+	ctx := context.Background()
+
+	if err := k8sClient.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: credentialNS},
+	}); err != nil {
+		t.Fatalf("create credential namespace: %v", err)
+	}
+
+	// A user on the envtest cluster, serialized to a kubeconfig — this is the
+	// spoke credential.
+	user, err := testEnv.AddUser(envtest.User{Name: "spoke-admin", Groups: []string{"system:masters"}}, nil)
+	if err != nil {
+		t.Fatalf("add envtest user: %v", err)
+	}
+	kubeconfig, err := user.KubeConfig()
+	if err != nil {
+		t.Fatalf("render kubeconfig: %v", err)
+	}
+
+	cred := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spoke-1",
+			Namespace: credentialNS,
+			Labels:    map[string]string{CredentialLabel: "true"},
+		},
+		Data: map[string][]byte{credentialKubeconfigKey: kubeconfig},
+	}
+	if err := k8sClient.Create(ctx, cred); err != nil {
+		t.Fatalf("create credential secret: %v", err)
+	}
+
+	eventually(t, func() bool {
+		_, ok := testRegistry.ClientFor("spoke-1")
+		return ok
+	}, "spoke-1 registered in the cluster registry")
+
+	// The registered client must actually reach the cluster.
+	c, _ := testRegistry.ClientFor("spoke-1")
+	if err := connectivityCheck(ctx, c); err != nil {
+		t.Errorf("registered spoke client failed connectivity check: %v", err)
+	}
+
+	// Removing the credential deregisters the spoke.
+	if err := k8sClient.Delete(ctx, cred); err != nil {
+		t.Fatalf("delete credential secret: %v", err)
+	}
+	eventually(t, func() bool {
+		_, ok := testRegistry.ClientFor("spoke-1")
+		return !ok
+	}, "spoke-1 deregistered after credential removal")
 }
