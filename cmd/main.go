@@ -118,6 +118,7 @@ func main() {
 			Registry:  registry,
 			Recorder:  mgr.GetEventRecorderFor("replikate-cluster"),
 			Namespace: credentialNamespace,
+			HubHost:   mgr.GetConfig().Host,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClusterCredential")
 			os.Exit(1)

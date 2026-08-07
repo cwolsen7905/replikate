@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,13 @@ type ClusterCredentialReconciler struct {
 	Registry  *ClusterRegistry
 	Recorder  record.EventRecorder
 	Namespace string // the namespace credential Secrets live in
+	// HubHost is the hub's own API server URL. A credential pointing at it is
+	// rejected: replicating into the hub-as-a-spoke would make the controller
+	// treat its own local copies as remote and delete them. This is an exact
+	// host-string check — it catches the obvious mistake, but a credential that
+	// reaches the same cluster via a different URL (external LB, IP vs DNS) can
+	// still slip through. A robust cluster-UID identity check is a pass-3 item.
+	HubHost string
 }
 
 // Reconcile registers, refreshes, or deregisters the spoke cluster named by the
@@ -47,6 +55,17 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	// Refuse a credential that points at the hub's own API server — see HubHost.
+	if r.HubHost != "" {
+		if cfg, perr := restConfigFromCredential(&secret); perr == nil && sameAPIHost(cfg.Host, r.HubHost) {
+			r.Registry.Remove(id)
+			l.Info("refusing self-referential cluster credential", "cluster", id, "host", cfg.Host)
+			r.Recorder.Event(&secret, corev1.EventTypeWarning, "SelfCluster",
+				"Refusing credential that points at the hub's own API server")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	c, err := r.Registry.Upsert(id, &secret)
@@ -73,6 +92,12 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// Re-check periodically so a spoke that goes down flips the gauge even
 	// without a Secret change.
 	return ctrl.Result{RequeueAfter: clusterRecheckInterval}, nil
+}
+
+// sameAPIHost reports whether two API server URLs refer to the same endpoint,
+// ignoring a trailing slash.
+func sameAPIHost(a, b string) bool {
+	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
 }
 
 // SetupWithManager wires the controller to watch only labeled credential Secrets

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cross-cluster **safety** (Phase 2 pass 2): the credential reconciler now
+  refuses a Secret whose kubeconfig points at the hub's own API server (raising a
+  `SelfCluster` event), removing the self-as-spoke data-loss risk. A source whose
+  spoke write or cleanup fails is requeued (`remoteRetryInterval`) so transient
+  spoke errors self-heal without waiting for the next resync, and remote copy
+  operations are counted per cluster via `replikate_remote_copy_operations_total`.
 - Cross-cluster **fan-out** (Phase 2 pass 1, requires `--enable-cross-cluster`):
   a source's optional `replikate.brainchurts.com/target-clusters` annotation
   (comma-separated spoke cluster ids) additionally replicates it into each named
@@ -18,9 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   misconfigured cluster is reported via an event and skipped, never blocking the
   local replication path. Sources without the annotation never contact a spoke;
   to stop remote replication and prune remote copies, set the annotation to `""`
-  rather than removing it. Spoke requests are bounded by a 10s timeout. Caveat:
-  until the `origin-cluster` label lands, do not register the hub as its own
-  spoke.
+  rather than removing it. Spoke requests are bounded by a 10s timeout.
 - Cross-cluster **cluster registry** (Phase 1 of cross-cluster replication,
   behind `--enable-cross-cluster`): Replikate discovers spoke clusters from
   Secrets labeled `replikate.brainchurts.com/cluster-credential` in its

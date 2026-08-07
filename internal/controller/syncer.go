@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,6 +36,11 @@ type Syncer struct {
 // DefaultExcludedNamespaces are the namespaces Replikate refuses to replicate
 // into unless the operator overrides the exclusion list.
 var DefaultExcludedNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
+
+// remoteRetryInterval is how soon a source is requeued after a spoke write or
+// cleanup failed, so transient cross-cluster errors self-heal without waiting
+// for the next natural reconcile.
+const remoteRetryInterval = time.Minute
 
 // NamespaceSet parses a comma-separated namespace list into a lookup set,
 // ignoring blank and whitespace-only entries. It returns nil for an empty list
@@ -136,6 +142,9 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	if err != nil {
 		return reconcile.Result{}, err
 	}
+	if deleted > 0 {
+		copyOperationsTotal.WithLabelValues(kindOf(obj), "deleted").Add(float64(deleted))
+	}
 
 	if changed > 0 || deleted > 0 {
 		s.Recorder.Eventf(obj, corev1.EventTypeNormal, "Replicated",
@@ -149,8 +158,10 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	// "not involved in cross-cluster", so nothing is pruned.
 	if s.Registry != nil {
 		if _, ok := obj.GetAnnotations()[s.Keys.TargetClustersAnnotation]; ok {
-			if err := s.reconcileRemote(ctx, obj); err != nil {
-				return reconcile.Result{}, err
+			if s.reconcileRemote(ctx, obj) {
+				// A spoke failed or was unregistered; retry sooner than the next
+				// natural reconcile without wedging on a permanently-down spoke.
+				return reconcile.Result{RequeueAfter: remoteRetryInterval}, nil
 			}
 		}
 	}
@@ -163,8 +174,10 @@ func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Objec
 	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
 		return nil
 	}
-	if _, err := s.deleteCopies(ctx, s.Client, obj, nil); err != nil {
+	if n, err := s.deleteCopies(ctx, s.Client, obj, nil); err != nil {
 		return err
+	} else if n > 0 {
+		copyOperationsTotal.WithLabelValues(kindOf(obj), "deleted").Add(float64(n))
 	}
 	// Also remove any copies we placed in spoke clusters.
 	if s.Registry != nil {
@@ -265,7 +278,6 @@ func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.
 		if err := cl.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
 			return n, err
 		}
-		copyOperationsTotal.WithLabelValues(kindOf(src), "deleted").Inc()
 		n++
 	}
 	return n, nil

@@ -13,17 +13,23 @@ import (
 // (config-syncer-style: no remote selector fan-out) — and removes copies from
 // spokes it no longer targets. It is best-effort per spoke: an unreachable or
 // misconfigured cluster is reported via an event and skipped, never failing the
-// reconcile or blocking the local path, which has already succeeded.
-func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) error {
+// reconcile or blocking the local path, which has already succeeded. It reports
+// whether any spoke failed, so the caller can requeue and retry sooner than the
+// next natural reconcile.
+func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed bool) {
 	l := log.FromContext(ctx)
 	targets := NamespaceSet(src.GetAnnotations()[s.Keys.TargetClustersAnnotation])
 
 	// Warn about targeted clusters that aren't registered, so a typo or a
-	// missing credential is visible rather than silent.
+	// missing credential is visible rather than silent. Treated as a failure so
+	// the source is requeued: this self-heals once the spoke's credential is
+	// added (there is no credential->source watch yet — a pass-3 item that would
+	// let us stop polling here). The cost of a genuine typo is a repeating event.
 	for id := range targets {
 		if _, ok := s.Registry.ClientFor(id); !ok {
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "UnknownCluster",
 				"target-clusters names unregistered cluster %q", id)
+			failed = true
 		}
 	}
 
@@ -39,20 +45,24 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) error {
 				l.Error(err, "cross-cluster copy failed", "cluster", id)
 				s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 					"Replicating to cluster %q failed: %v", id, err)
+				failed = true
 				continue
 			}
 			if act != actionNone {
-				copyOperationsTotal.WithLabelValues(kindOf(src), operationFor(act)).Inc()
+				remoteCopyOperationsTotal.WithLabelValues(id, operationFor(act)).Inc()
 				s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
 					"Replicated to cluster %q", id)
 			}
-		} else if _, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
+		} else if n, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
 			l.Error(err, "cross-cluster cleanup failed", "cluster", id)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 				"Removing copies from cluster %q failed: %v", id, err)
+			failed = true
+		} else if n > 0 {
+			remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
 		}
 	}
-	return nil
+	return failed
 }
 
 // deleteRemoteCopies removes every copy of src from all registered spokes, used
@@ -67,10 +77,12 @@ func (s *Syncer) deleteRemoteCopies(ctx context.Context, src client.Object) erro
 		if !ok {
 			continue
 		}
-		if _, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
+		if n, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
 			l.Error(err, "cross-cluster cleanup on delete failed", "cluster", id)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 				"Removing copies from cluster %q on delete failed: %v", id, err)
+		} else if n > 0 {
+			remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
 		}
 	}
 	return nil
