@@ -76,9 +76,11 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
     - ✅ **Pass 1 — parity:** `target-clusters` annotation; one copy per targeted
       spoke in the source namespace; prunes de-listed spokes and cleans up on
       delete; best-effort per spoke (a down spoke never blocks the local path).
-      *Caveat until pass 2: don't register the hub as its own spoke — without the
-      `origin-cluster` label a self-pointing spoke can delete local copies.*
-    - 🔭 **Pass 2:** `origin-cluster` label (multi-hub safety), optional
+    - ✅ **Pass 2 — safety:** reject a credential pointing at the hub's own API
+      server (removes the self-as-spoke data-loss risk); requeue on partial
+      spoke failure so transient errors self-heal; per-cluster
+      `replikate_remote_copy_operations_total` metric; 10s spoke request timeout.
+    - 🔭 **Pass 3:** `origin-cluster` label (multi-hub coexistence), optional
       per-target namespace override, dual-envtest coverage.
   - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke
     namespace + managed-copy watches (opt-in native fan-out).

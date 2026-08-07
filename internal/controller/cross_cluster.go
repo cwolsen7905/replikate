@@ -13,8 +13,10 @@ import (
 // (config-syncer-style: no remote selector fan-out) — and removes copies from
 // spokes it no longer targets. It is best-effort per spoke: an unreachable or
 // misconfigured cluster is reported via an event and skipped, never failing the
-// reconcile or blocking the local path, which has already succeeded.
-func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) error {
+// reconcile or blocking the local path, which has already succeeded. It reports
+// whether any spoke failed, so the caller can requeue and retry sooner than the
+// next natural reconcile.
+func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed bool) {
 	l := log.FromContext(ctx)
 	targets := NamespaceSet(src.GetAnnotations()[s.Keys.TargetClustersAnnotation])
 
@@ -24,6 +26,7 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) error {
 		if _, ok := s.Registry.ClientFor(id); !ok {
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "UnknownCluster",
 				"target-clusters names unregistered cluster %q", id)
+			failed = true
 		}
 	}
 
@@ -39,10 +42,11 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) error {
 				l.Error(err, "cross-cluster copy failed", "cluster", id)
 				s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 					"Replicating to cluster %q failed: %v", id, err)
+				failed = true
 				continue
 			}
 			if act != actionNone {
-				copyOperationsTotal.WithLabelValues(kindOf(src), operationFor(act)).Inc()
+				remoteCopyOperationsTotal.WithLabelValues(id, operationFor(act)).Inc()
 				s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
 					"Replicated to cluster %q", id)
 			}
@@ -50,9 +54,10 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) error {
 			l.Error(err, "cross-cluster cleanup failed", "cluster", id)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 				"Removing copies from cluster %q failed: %v", id, err)
+			failed = true
 		}
 	}
-	return nil
+	return failed
 }
 
 // deleteRemoteCopies removes every copy of src from all registered spokes, used

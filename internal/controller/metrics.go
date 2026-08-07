@@ -24,10 +24,15 @@ var (
 		Name: "replikate_cluster_up",
 		Help: "Whether a registered spoke cluster is currently reachable (1) or not (0), labeled by cluster id.",
 	}, []string{"cluster"})
+
+	remoteCopyOperationsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "replikate_remote_copy_operations_total",
+		Help: "Total copy operations performed on spoke clusters, labeled by cluster and operation (created, updated, adopted).",
+	}, []string{"cluster", "operation"})
 )
 
 func init() {
-	metrics.Registry.MustRegister(reconcileTotal, copyOperationsTotal, clusterUp)
+	metrics.Registry.MustRegister(reconcileTotal, copyOperationsTotal, clusterUp, remoteCopyOperationsTotal)
 }
 
 // kindOf returns the metric label for obj's kind.
