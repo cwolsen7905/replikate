@@ -77,7 +77,7 @@ Requires Go 1.23+, and Docker (with buildx/QEMU for multi-arch) + Helm for the i
 
 ## Scope & limitations
 
-- Replicates **ConfigMaps and Secrets** by annotation, **intra-cluster only**. Cross-cluster sync is a planned follow-up (see [ROADMAP.md](ROADMAP.md)).
+- Replicates **ConfigMaps and Secrets** by annotation. Intra-cluster by default; opt-in **cross-cluster** replication (`--enable-cross-cluster` + a `target-clusters` annotation) copies a source into other registered clusters — see [ROADMAP.md](ROADMAP.md) and `deploy/spoke-rbac.yaml`.
 - A manually-edited or deleted replica is restored **near-instantly** — managed copies are watched, not left until the next resync.
 - If two sources with the same name in different namespaces target the same namespace, the first to create the copy keeps it: Replikate refuses to overwrite a copy owned by another source and emits a `Conflict` event, rather than the two fighting over it.
 
