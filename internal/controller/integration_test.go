@@ -28,8 +28,10 @@ import (
 // names are process-global (they register metrics), so a manager-per-test would
 // collide on the second start.
 var (
-	k8sClient    client.Client
+	k8sClient    client.Client // hub, direct
+	spokeClient  client.Client // spoke, direct (a genuinely separate API server)
 	testEnv      *envtest.Environment
+	spokeEnv     *envtest.Environment
 	testRegistry *ClusterRegistry
 )
 
@@ -39,10 +41,15 @@ const credentialNS = "replikate-system"
 
 func TestMain(m *testing.M) {
 	testEnv = &envtest.Environment{}
-	env := testEnv
-	cfg, err := env.Start()
+	cfg, err := testEnv.Start()
 	if err != nil {
-		panic("start envtest (is KUBEBUILDER_ASSETS set?): " + err.Error())
+		panic("start hub envtest (is KUBEBUILDER_ASSETS set?): " + err.Error())
+	}
+	// A second, genuinely separate control plane acts as the spoke cluster.
+	spokeEnv = &envtest.Environment{}
+	spokeCfg, err := spokeEnv.Start()
+	if err != nil {
+		panic("start spoke envtest: " + err.Error())
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -54,11 +61,16 @@ func TestMain(m *testing.M) {
 	}
 	_ = clientgoscheme.AddToScheme(mgr.GetScheme())
 
+	testRegistry = NewClusterRegistry(func(c *rest.Config, _ string) (client.Client, error) {
+		return client.New(c, client.Options{Scheme: mgr.GetScheme()})
+	})
+
 	syncer := &Syncer{
 		Client:            mgr.GetClient(),
 		Keys:              NewKeys(DefaultDomain),
 		Recorder:          mgr.GetEventRecorderFor("replikate"),
 		ExcludeNamespaces: NamespaceSet("kube-system,kube-public,kube-node-lease"),
+		Registry:          testRegistry, // cross-cluster active; only annotated sources fan out
 	}
 	if err := (&ConfigMapReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
 		panic("setup configmap: " + err.Error())
@@ -66,15 +78,12 @@ func TestMain(m *testing.M) {
 	if err := (&SecretReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
 		panic("setup secret: " + err.Error())
 	}
-
-	testRegistry = NewClusterRegistry(func(c *rest.Config, _ string) (client.Client, error) {
-		return client.New(c, client.Options{Scheme: mgr.GetScheme()})
-	})
 	if err := (&ClusterCredentialReconciler{
 		Client:    mgr.GetClient(),
 		Registry:  testRegistry,
 		Recorder:  mgr.GetEventRecorderFor("replikate-cluster"),
 		Namespace: credentialNS,
+		HubHost:   cfg.Host, // enable the self-as-spoke guard
 	}).SetupWithManager(mgr); err != nil {
 		panic("setup cluster-credential: " + err.Error())
 	}
@@ -87,13 +96,45 @@ func TestMain(m *testing.M) {
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: mgr.GetScheme()})
 	if err != nil {
-		panic("direct client: " + err.Error())
+		panic("hub client: " + err.Error())
 	}
+	spokeClient, err = client.New(spokeCfg, client.Options{Scheme: mgr.GetScheme()})
+	if err != nil {
+		panic("spoke client: " + err.Error())
+	}
+
+	// The hub needs the credential namespace; register the spoke directly so
+	// fan-out tests have a ready target without racing the credential watch.
+	if err := k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: credentialNS}}); err != nil {
+		panic("create credential namespace: " + err.Error())
+	}
+	if _, err := testRegistry.Upsert("spoke", spokeCredential(spokeEnv)); err != nil {
+		panic("register spoke: " + err.Error())
+	}
+	testRegistry.SetUp("spoke", true)
 
 	code := m.Run()
 	cancel()
-	_ = env.Stop()
+	_ = testEnv.Stop()
+	_ = spokeEnv.Stop()
 	os.Exit(code)
+}
+
+// spokeCredential builds a credential Secret carrying a kubeconfig for env.
+func spokeCredential(env *envtest.Environment) *corev1.Secret {
+	user, err := env.AddUser(envtest.User{Name: "replikate-spoke", Groups: []string{"system:masters"}}, nil)
+	if err != nil {
+		panic("add spoke user: " + err.Error())
+	}
+	kubeconfig, err := user.KubeConfig()
+	if err != nil {
+		panic("render spoke kubeconfig: " + err.Error())
+	}
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "spoke", Namespace: credentialNS,
+			Labels: map[string]string{CredentialLabel: "true"}},
+		Data: map[string][]byte{credentialKubeconfigKey: kubeconfig},
+	}
 }
 
 func eventually(t *testing.T, cond func() bool, msg string) {
@@ -221,59 +262,99 @@ func TestIntegration_SameNameSourcesDoNotFight(t *testing.T) {
 	}
 }
 
-// TestIntegration_ClusterRegistry registers a spoke against a live API server:
-// a credential Secret whose kubeconfig points back at the envtest cluster (self
-// as spoke) should be discovered, its client should pass the connectivity
-// check, and removing the Secret should deregister it.
+// TestIntegration_ClusterRegistry drives the credential reconciler against a
+// real second control plane: a credential Secret for the spoke is discovered
+// and registered, its client passes the connectivity check, and removing the
+// Secret deregisters it.
 func TestIntegration_ClusterRegistry(t *testing.T) {
 	ctx := context.Background()
 
-	if err := k8sClient.Create(ctx, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: credentialNS},
-	}); err != nil {
-		t.Fatalf("create credential namespace: %v", err)
-	}
-
-	// A user on the envtest cluster, serialized to a kubeconfig — this is the
-	// spoke credential.
-	user, err := testEnv.AddUser(envtest.User{Name: "spoke-admin", Groups: []string{"system:masters"}}, nil)
-	if err != nil {
-		t.Fatalf("add envtest user: %v", err)
-	}
-	kubeconfig, err := user.KubeConfig()
-	if err != nil {
-		t.Fatalf("render kubeconfig: %v", err)
-	}
-
-	cred := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "spoke-1",
-			Namespace: credentialNS,
-			Labels:    map[string]string{CredentialLabel: "true"},
-		},
-		Data: map[string][]byte{credentialKubeconfigKey: kubeconfig},
-	}
+	cred := spokeCredential(spokeEnv)
+	cred.Name = "spoke-reg" // distinct id so it doesn't clash with the pre-registered "spoke"
+	cred.Labels = map[string]string{CredentialLabel: "true"}
 	if err := k8sClient.Create(ctx, cred); err != nil {
 		t.Fatalf("create credential secret: %v", err)
 	}
 
 	eventually(t, func() bool {
-		_, ok := testRegistry.ClientFor("spoke-1")
+		_, ok := testRegistry.ClientFor("spoke-reg")
 		return ok
-	}, "spoke-1 registered in the cluster registry")
+	}, "spoke-reg registered in the cluster registry")
 
-	// The registered client must actually reach the cluster.
-	c, _ := testRegistry.ClientFor("spoke-1")
+	c, _ := testRegistry.ClientFor("spoke-reg")
 	if err := connectivityCheck(ctx, c); err != nil {
 		t.Errorf("registered spoke client failed connectivity check: %v", err)
 	}
 
-	// Removing the credential deregisters the spoke.
 	if err := k8sClient.Delete(ctx, cred); err != nil {
 		t.Fatalf("delete credential secret: %v", err)
 	}
 	eventually(t, func() bool {
-		_, ok := testRegistry.ClientFor("spoke-1")
+		_, ok := testRegistry.ClientFor("spoke-reg")
 		return !ok
-	}, "spoke-1 deregistered after credential removal")
+	}, "spoke-reg deregistered after credential removal")
+}
+
+// TestIntegration_CrossClusterFanOut is the release gate: a source in the hub
+// with target-clusters is replicated into a genuinely separate spoke cluster,
+// pruned when the target is dropped, and cleaned up when the source is deleted.
+func TestIntegration_CrossClusterFanOut(t *testing.T) {
+	ctx := context.Background()
+	keys := NewKeys(DefaultDomain)
+
+	// The copy lands in the source's namespace on the spoke, so it must exist
+	// there (Phase 2 doesn't create remote namespaces).
+	for _, c := range []client.Client{k8sClient, spokeClient} {
+		if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "xc"}}); err != nil {
+			t.Fatalf("create namespace xc: %v", err)
+		}
+	}
+
+	src := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared",
+			Namespace: "xc",
+			Annotations: map[string]string{
+				keys.SyncAnnotation:           "", // no local peers created in this test
+				keys.TargetClustersAnnotation: "spoke",
+			},
+		},
+		Data: map[string]string{"k": "v"},
+	}
+	if err := k8sClient.Create(ctx, src); err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	// The copy appears in the SPOKE cluster.
+	spokeHas := func() bool {
+		var cm corev1.ConfigMap
+		return spokeClient.Get(ctx, types.NamespacedName{Namespace: "xc", Name: "shared"}, &cm) == nil
+	}
+	eventually(t, spokeHas, "copy replicated into the spoke cluster")
+
+	// Drop the target → the remote copy is pruned.
+	got := &corev1.ConfigMap{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "xc", Name: "shared"}, got); err != nil {
+		t.Fatalf("get source: %v", err)
+	}
+	got.Annotations[keys.TargetClustersAnnotation] = ""
+	if err := k8sClient.Update(ctx, got); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	eventually(t, func() bool { return !spokeHas() }, "remote copy pruned after target dropped")
+
+	// Re-target, then delete the source → remote copy removed via the finalizer.
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "xc", Name: "shared"}, got); err != nil {
+		t.Fatalf("get source: %v", err)
+	}
+	got.Annotations[keys.TargetClustersAnnotation] = "spoke"
+	if err := k8sClient.Update(ctx, got); err != nil {
+		t.Fatalf("re-target: %v", err)
+	}
+	eventually(t, spokeHas, "copy re-replicated after re-targeting")
+
+	if err := k8sClient.Delete(ctx, got); err != nil {
+		t.Fatalf("delete source: %v", err)
+	}
+	eventually(t, func() bool { return !spokeHas() }, "remote copy removed when source deleted")
 }

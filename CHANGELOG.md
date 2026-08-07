@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+
+## [1.1.0] - 2026-08-07
+
+Cross-cluster replication (hub-and-spoke), opt-in via `--enable-cross-cluster`.
+Additive to the stable v1.0 contract: single-cluster sources are unaffected.
+
 ### Added
 
+- Cross-cluster **dual-envtest**: an integration test runs the manager against
+  two separate control planes and verifies a source in the hub replicates into
+  the spoke, prunes when its target is dropped, and is cleaned up on delete —
+  the end-to-end proof behind this release.
 - Cross-cluster **safety** (Phase 2 pass 2): the credential reconciler now
   refuses a Secret whose kubeconfig points at the hub's own API server (raising a
   `SelfCluster` event), removing the self-as-spoke data-loss risk. A source whose
@@ -147,7 +158,8 @@ semantics are considered stable and won't change incompatibly without a 2.0.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/cwolsen7905/replikate/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cwolsen7905/replikate/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...v0.3.0
