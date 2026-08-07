@@ -60,9 +60,13 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
 
 ## Later / exploring 💡
 
-- 💡 **Cross-cluster replication** via kubeconfig contexts — the largest open
-  item from the launch write-up; deliberately post-`1.0` because it expands the
-  annotation contract.
+- 🔭 **Cross-cluster replication** (hub-and-spoke) — replicate a source into
+  selected namespaces of other clusters via a new, optional
+  `target-clusters` annotation and labeled per-spoke credential Secrets.
+  Additive (existing sources are unaffected), so it lands in a 1.x minor. See
+  the design doc — [`docs/design/cross-cluster-replication.md`](docs/design/cross-cluster-replication.md) — for the topology,
+  contract extension, and the four-phase plan (registry → fan-out → remote
+  drift → webhook/metrics). The largest open item from the launch write-up.
 - 💡 Replicate additional resource kinds beyond ConfigMaps and Secrets.
 
 ## 1.0 and the stable contract
