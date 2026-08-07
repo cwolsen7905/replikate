@@ -70,9 +70,18 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
   - ✅ **Phase 1 — cluster registry** (`--enable-cross-cluster`): discover
     spokes from labeled credential Secrets, build a client per spoke, health
     check + `replikate_cluster_up` gauge, spoke RBAC in `deploy/spoke-rbac.yaml`.
-  - 🔭 **Phase 2 — cross-cluster fan-out** (resync-only): `target-clusters`
-    annotation, per-cluster upsert/cleanup, `origin-cluster` label.
-  - 🔭 **Phase 3 — remote drift correction**: per-spoke managed-copy watch.
+  - 🚧 **Phase 2 — cross-cluster fan-out.** Decided to mirror config-syncer:
+    `target-clusters` is additive remote clusters, and each remote gets one copy
+    in the **source's own namespace** (no remote selector fan-out).
+    - ✅ **Pass 1 — parity:** `target-clusters` annotation; one copy per targeted
+      spoke in the source namespace; prunes de-listed spokes and cleans up on
+      delete; best-effort per spoke (a down spoke never blocks the local path).
+      *Caveat until pass 2: don't register the hub as its own spoke — without the
+      `origin-cluster` label a self-pointing spoke can delete local copies.*
+    - 🔭 **Pass 2:** `origin-cluster` label (multi-hub safety), optional
+      per-target namespace override, dual-envtest coverage.
+  - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke
+    namespace + managed-copy watches (opt-in native fan-out).
   - 🔭 **Phase 4 — webhook + metrics + packaging.**
 - 💡 Replicate additional resource kinds beyond ConfigMaps and Secrets.
 

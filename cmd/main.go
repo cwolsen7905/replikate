@@ -74,11 +74,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The cluster registry is shared by the Syncer (fan-out) and the credential
+	// reconciler (population); nil when cross-cluster is disabled.
+	var registry *controller.ClusterRegistry
+	if enableCrossCluster {
+		if credentialNamespace == "" {
+			setupLog.Error(nil, "cross-cluster enabled but no credential namespace; set --cluster-credential-namespace or $POD_NAMESPACE")
+			os.Exit(1)
+		}
+		registry = controller.NewClusterRegistry(func(cfg *rest.Config, _ string) (client.Client, error) {
+			return client.New(cfg, client.Options{Scheme: scheme})
+		})
+	}
+
 	syncer := &controller.Syncer{
 		Client:            mgr.GetClient(),
 		Keys:              controller.NewKeys(annotationDomain),
 		Recorder:          mgr.GetEventRecorderFor("replikate"),
 		ExcludeNamespaces: controller.NamespaceSet(excludeNamespaces),
+		Registry:          registry,
 	}
 	setupLog.Info("using annotation domain", "domain", annotationDomain)
 	setupLog.Info("excluding namespaces", "namespaces", excludeNamespaces)
@@ -99,13 +113,6 @@ func main() {
 	}
 
 	if enableCrossCluster {
-		if credentialNamespace == "" {
-			setupLog.Error(nil, "cross-cluster enabled but no credential namespace; set --cluster-credential-namespace or $POD_NAMESPACE")
-			os.Exit(1)
-		}
-		registry := controller.NewClusterRegistry(func(cfg *rest.Config, _ string) (client.Client, error) {
-			return client.New(cfg, client.Options{Scheme: scheme})
-		})
 		if err := (&controller.ClusterCredentialReconciler{
 			Client:    mgr.GetClient(),
 			Registry:  registry,
