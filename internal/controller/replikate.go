@@ -37,6 +37,11 @@ type Keys struct {
 	// SyncAnnotation marks a ConfigMap/Secret as a replication source; its
 	// value is a namespace label selector (empty means all namespaces).
 	SyncAnnotation string
+	// TargetClustersAnnotation lists additional spoke clusters (by registry id,
+	// comma-separated) to replicate the source into, one copy per cluster in the
+	// source's own namespace. Additive to the local sync; absent means local
+	// only.
+	TargetClustersAnnotation string
 	// Finalizer lets Replikate clean up copies before a source is deleted.
 	Finalizer string
 	// ManagedByLabel marks an object as a Replikate-managed copy.
@@ -49,12 +54,13 @@ type Keys struct {
 // NewKeys derives the annotation/label keys from a domain prefix.
 func NewKeys(domain string) Keys {
 	return Keys{
-		Domain:          domain,
-		SyncAnnotation:  domain + "/sync",
-		Finalizer:       domain + "/finalizer",
-		ManagedByLabel:  domain + "/managed-by",
-		OriginNSLabel:   domain + "/origin-namespace",
-		OriginNameLabel: domain + "/origin-name",
+		Domain:                   domain,
+		SyncAnnotation:           domain + "/sync",
+		TargetClustersAnnotation: domain + "/target-clusters",
+		Finalizer:                domain + "/finalizer",
+		ManagedByLabel:           domain + "/managed-by",
+		OriginNSLabel:            domain + "/origin-namespace",
+		OriginNameLabel:          domain + "/origin-name",
 	}
 }
 

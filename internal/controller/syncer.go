@@ -26,6 +26,10 @@ type Syncer struct {
 	// regardless of a source's selector. It protects system namespaces by
 	// default; a nil or empty set excludes nothing.
 	ExcludeNamespaces map[string]bool
+	// Registry, when non-nil, enables cross-cluster replication: a source's
+	// target-clusters annotation names spoke clusters to also copy it into. Nil
+	// disables all cross-cluster behavior, leaving the local path unchanged.
+	Registry *ClusterRegistry
 }
 
 // DefaultExcludedNamespaces are the namespaces Replikate refuses to replicate
@@ -117,7 +121,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	// Create, update, or adopt a copy in every target namespace.
 	changed := 0
 	for ns := range targets {
-		act, err := s.upsertCopy(ctx, obj, ns)
+		act, err := s.upsertCopy(ctx, s.Client, obj, ns)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -128,7 +132,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	}
 
 	// Remove copies from namespaces that are no longer targets.
-	deleted, err := s.deleteCopies(ctx, obj, targets)
+	deleted, err := s.deleteCopies(ctx, s.Client, obj, targets)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -136,6 +140,19 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	if changed > 0 || deleted > 0 {
 		s.Recorder.Eventf(obj, corev1.EventTypeNormal, "Replicated",
 			"Reconciled %d target namespace(s): %d written, %d removed", len(targets), changed, deleted)
+	}
+
+	// Cross-cluster fan-out (additive). Only sources that carry the
+	// target-clusters annotation pay for the remote walk; a plain source never
+	// touches a spoke. To stop remote replication (and prune remote copies), set
+	// the annotation to "" rather than removing it — an absent annotation means
+	// "not involved in cross-cluster", so nothing is pruned.
+	if s.Registry != nil {
+		if _, ok := obj.GetAnnotations()[s.Keys.TargetClustersAnnotation]; ok {
+			if err := s.reconcileRemote(ctx, obj); err != nil {
+				return reconcile.Result{}, err
+			}
+		}
 	}
 	return reconcile.Result{}, nil
 }
@@ -146,8 +163,14 @@ func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Objec
 	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
 		return nil
 	}
-	if _, err := s.deleteCopies(ctx, obj, nil); err != nil {
+	if _, err := s.deleteCopies(ctx, s.Client, obj, nil); err != nil {
 		return err
+	}
+	// Also remove any copies we placed in spoke clusters.
+	if s.Registry != nil {
+		if err := s.deleteRemoteCopies(ctx, obj); err != nil {
+			return err
+		}
 	}
 	controllerutil.RemoveFinalizer(obj, s.Keys.Finalizer)
 	return client.IgnoreNotFound(s.Update(ctx, obj))
@@ -156,12 +179,12 @@ func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Objec
 // upsertCopy creates, updates, or adopts the managed copy of src in namespace
 // ns, and reports what it did. It refuses to overwrite an object it does not
 // manage unless that object is an adoptable config-syncer copy.
-func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) (action, error) {
+func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Object, ns string) (action, error) {
 	l := log.FromContext(ctx)
 	key := types.NamespacedName{Namespace: ns, Name: src.GetName()}
 
 	existing := emptyLike(src)
-	err := s.Get(ctx, key, existing)
+	err := cl.Get(ctx, key, existing)
 	switch {
 	case apierrors.IsNotFound(err):
 		desired := emptyLike(src)
@@ -170,7 +193,7 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) (
 		s.Keys.applyCopyMeta(src, desired)
 		copyContents(src, desired)
 		l.Info("creating copy", "namespace", ns, "name", src.GetName())
-		if err := s.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
+		if err := cl.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
 			return actionNone, err
 		}
 		return actionCreated, nil
@@ -211,7 +234,7 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) (
 	} else {
 		l.Info("adopting copy", "namespace", ns, "name", src.GetName())
 	}
-	if err := s.Update(ctx, existing); err != nil {
+	if err := cl.Update(ctx, existing); err != nil {
 		return actionNone, err
 	}
 	if managed {
@@ -223,10 +246,10 @@ func (s *Syncer) upsertCopy(ctx context.Context, src client.Object, ns string) (
 // deleteCopies removes managed copies of src and reports how many it deleted.
 // When keep is non-nil, copies whose namespace is present in keep are retained;
 // when keep is nil, all copies go.
-func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[string]bool) (int, error) {
+func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.Object, keep map[string]bool) (int, error) {
 	l := log.FromContext(ctx)
 	list := emptyListLike(src)
-	if err := s.List(ctx, list, client.MatchingLabels{
+	if err := cl.List(ctx, list, client.MatchingLabels{
 		s.Keys.ManagedByLabel:  ManagedByValue,
 		s.Keys.OriginNSLabel:   src.GetNamespace(),
 		s.Keys.OriginNameLabel: src.GetName(),
@@ -239,7 +262,7 @@ func (s *Syncer) deleteCopies(ctx context.Context, src client.Object, keep map[s
 			continue
 		}
 		l.Info("deleting copy", "namespace", c.GetNamespace(), "name", c.GetName())
-		if err := s.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
+		if err := cl.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
 			return n, err
 		}
 		copyOperationsTotal.WithLabelValues(kindOf(src), "deleted").Inc()

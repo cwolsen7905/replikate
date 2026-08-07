@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
@@ -20,6 +21,10 @@ const (
 	// credentialKubeconfigKey is the Secret data key holding the spoke's
 	// kubeconfig.
 	credentialKubeconfigKey = "kubeconfig"
+
+	// spokeRequestTimeout bounds every request to a spoke cluster, so a spoke
+	// that accepts the connection but hangs can't stall a reconcile worker.
+	spokeRequestTimeout = 10 * time.Second
 )
 
 // clusterConn is a single registered spoke: its API client and last-known
@@ -122,6 +127,7 @@ func restConfigFromCredential(secret *corev1.Secret) (*rest.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse kubeconfig from %s/%s: %w", secret.Namespace, secret.Name, err)
 	}
+	cfg.Timeout = spokeRequestTimeout
 	return cfg, nil
 }
 

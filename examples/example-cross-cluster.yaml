@@ -1,0 +1,21 @@
+# Cross-cluster replication (requires the controller run with
+# --enable-cross-cluster and the spoke clusters registered as labeled
+# credential Secrets — see deploy/spoke-rbac.yaml).
+#
+# This ConfigMap is replicated:
+#   * locally, into every namespace labeled team=web (the sync annotation), and
+#   * into the source's own namespace (default) on the spoke clusters named in
+#     target-clusters — one copy per spoke.
+#
+# target-clusters is additive: the local sync above happens regardless. The
+# cluster ids are the names of the credential Secrets registered on the hub.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-config
+  namespace: default
+  annotations:
+    replikate.brainchurts.com/sync: "team=web"
+    replikate.brainchurts.com/target-clusters: "spoke-a,spoke-b"
+data:
+  LOG_LEVEL: "info"
