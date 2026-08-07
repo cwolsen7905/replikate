@@ -10,7 +10,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -36,6 +38,8 @@ func main() {
 		annotationDomain     string
 		excludeNamespaces    string
 		enableWebhook        bool
+		enableCrossCluster   bool
+		credentialNamespace  string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -48,6 +52,10 @@ func main() {
 		"Comma-separated namespaces that never receive copies; empty excludes none.")
 	flag.BoolVar(&enableWebhook, "enable-webhook", false,
 		"Serve the validating webhook that rejects sources with an invalid sync selector.")
+	flag.BoolVar(&enableCrossCluster, "enable-cross-cluster", false,
+		"Discover spoke clusters from labeled credential Secrets (cross-cluster, Phase 1: registry only).")
+	flag.StringVar(&credentialNamespace, "cluster-credential-namespace", os.Getenv("POD_NAMESPACE"),
+		"Namespace where spoke cluster credential Secrets live (defaults to $POD_NAMESPACE).")
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -88,6 +96,26 @@ func main() {
 		mgr.GetWebhookServer().Register(controller.SelectorWebhookPath,
 			&admission.Webhook{Handler: &controller.SelectorValidator{Keys: controller.NewKeys(annotationDomain)}})
 		setupLog.Info("serving sync-selector validating webhook", "path", controller.SelectorWebhookPath)
+	}
+
+	if enableCrossCluster {
+		if credentialNamespace == "" {
+			setupLog.Error(nil, "cross-cluster enabled but no credential namespace; set --cluster-credential-namespace or $POD_NAMESPACE")
+			os.Exit(1)
+		}
+		registry := controller.NewClusterRegistry(func(cfg *rest.Config, _ string) (client.Client, error) {
+			return client.New(cfg, client.Options{Scheme: scheme})
+		})
+		if err := (&controller.ClusterCredentialReconciler{
+			Client:    mgr.GetClient(),
+			Registry:  registry,
+			Recorder:  mgr.GetEventRecorderFor("replikate-cluster"),
+			Namespace: credentialNamespace,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ClusterCredential")
+			os.Exit(1)
+		}
+		setupLog.Info("cross-cluster registry enabled", "credentialNamespace", credentialNamespace)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

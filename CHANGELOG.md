@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+### Added
+
+- Cross-cluster **cluster registry** (Phase 1 of cross-cluster replication,
+  behind `--enable-cross-cluster`): Replikate discovers spoke clusters from
+  Secrets labeled `replikate.brainchurts.com/cluster-credential` in its
+  namespace, builds a client per spoke, runs a connectivity check, and records
+  reachability via `ClusterConnected`/`ClusterUnreachable` events and a
+  `replikate_cluster_up{cluster}` gauge. Spoke RBAC ships in
+  `deploy/spoke-rbac.yaml`. No cross-cluster replication happens yet — this only
+  populates the registry.
 
 ## [1.0.0] - 2026-07-19
 

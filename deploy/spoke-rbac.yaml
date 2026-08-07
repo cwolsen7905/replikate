@@ -1,0 +1,73 @@
+# Spoke-cluster RBAC for Replikate cross-cluster replication (Phase 1: registry).
+#
+# Apply this on each SPOKE cluster — the cluster a hub Replikate should be able
+# to replicate into. It creates a least-privilege ServiceAccount the hub uses to
+# manage ConfigMaps and Secrets and to discover namespaces, plus a long-lived
+# token Secret you turn into a kubeconfig for the hub's credential Secret.
+#
+# Usage (run against the SPOKE's kube context):
+#
+#   kubectl apply -f deploy/spoke-rbac.yaml
+#
+#   # Build a kubeconfig for the hub from the token + the spoke's API server/CA:
+#   SPOKE_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+#   TOKEN=$(kubectl -n replikate-system get secret replikate-spoke-token -o jsonpath='{.data.token}' | base64 -d)
+#   kubectl -n replikate-system get secret replikate-spoke-token -o jsonpath='{.data.ca\.crt}' > /tmp/spoke-ca.crt
+#   kubectl config set-cluster spoke --server="$SPOKE_SERVER" \
+#     --certificate-authority=/tmp/spoke-ca.crt --embed-certs=true --kubeconfig=/tmp/spoke.kubeconfig
+#   kubectl config set-credentials replikate --token="$TOKEN" --kubeconfig=/tmp/spoke.kubeconfig
+#   kubectl config set-context spoke --cluster=spoke --user=replikate --kubeconfig=/tmp/spoke.kubeconfig
+#   kubectl config use-context spoke --kubeconfig=/tmp/spoke.kubeconfig
+#
+#   # On the HUB, register the spoke (Secret name = cluster id):
+#   kubectl -n replikate-system create secret generic spoke-1 \
+#     --from-file=kubeconfig=/tmp/spoke.kubeconfig
+#   kubectl -n replikate-system label secret spoke-1 replikate.brainchurts.com/cluster-credential=true
+#
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: replikate-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: replikate-spoke
+  namespace: replikate-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: replikate-spoke
+rules:
+  # Discover target namespaces.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Manage the replicated copies.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: replikate-spoke
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: replikate-spoke
+subjects:
+  - kind: ServiceAccount
+    name: replikate-spoke
+    namespace: replikate-system
+---
+# A long-lived token for the ServiceAccount, used to build the hub's kubeconfig.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: replikate-spoke-token
+  namespace: replikate-system
+  annotations:
+    kubernetes.io/service-account.name: replikate-spoke
+type: kubernetes.io/service-account-token

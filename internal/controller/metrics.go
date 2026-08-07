@@ -19,10 +19,15 @@ var (
 		Name: "replikate_copy_operations_total",
 		Help: "Total copy operations, labeled by kind and operation (created, updated, adopted, deleted).",
 	}, []string{"kind", "operation"})
+
+	clusterUp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "replikate_cluster_up",
+		Help: "Whether a registered spoke cluster is currently reachable (1) or not (0), labeled by cluster id.",
+	}, []string{"cluster"})
 )
 
 func init() {
-	metrics.Registry.MustRegister(reconcileTotal, copyOperationsTotal)
+	metrics.Registry.MustRegister(reconcileTotal, copyOperationsTotal, clusterUp)
 }
 
 // kindOf returns the metric label for obj's kind.
