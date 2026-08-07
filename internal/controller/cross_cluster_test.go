@@ -127,6 +127,33 @@ func TestReconcile_CrossClusterCleanupOnDelete(t *testing.T) {
 	}
 }
 
+func TestReconcile_CrossClusterSkippedWithoutAnnotation(t *testing.T) {
+	// A leftover managed copy of this source sits in the spoke.
+	spoke := newSpoke()
+	pre := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      "cfg",
+		Namespace: "default",
+		Labels: map[string]string{
+			testKeys.ManagedByLabel:  ManagedByValue,
+			testKeys.OriginNSLabel:   "default",
+			testKeys.OriginNameLabel: "cfg",
+		},
+	}}
+	if err := spoke.Create(context.Background(), pre); err != nil {
+		t.Fatalf("seed spoke copy: %v", err)
+	}
+
+	// The source has NO target-clusters annotation, so the remote walk must be
+	// skipped entirely — the spoke copy is left untouched, not pruned.
+	s, _ := newTestSyncer(ns("default", nil), sourceCM("cfg", "default", "", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke-a": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	if _, ok := remoteCopy(t, spoke, "default", "cfg"); !ok {
+		t.Error("a source without target-clusters must not touch spokes (leftover copy was pruned)")
+	}
+}
+
 func TestReconcile_CrossClusterUnknownClusterEvent(t *testing.T) {
 	s, rec := newTestSyncer(
 		ns("default", nil),

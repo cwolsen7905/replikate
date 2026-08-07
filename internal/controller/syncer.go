@@ -142,10 +142,16 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 			"Reconciled %d target namespace(s): %d written, %d removed", len(targets), changed, deleted)
 	}
 
-	// Cross-cluster fan-out (additive; no-op unless enabled and annotated).
+	// Cross-cluster fan-out (additive). Only sources that carry the
+	// target-clusters annotation pay for the remote walk; a plain source never
+	// touches a spoke. To stop remote replication (and prune remote copies), set
+	// the annotation to "" rather than removing it — an absent annotation means
+	// "not involved in cross-cluster", so nothing is pruned.
 	if s.Registry != nil {
-		if err := s.reconcileRemote(ctx, obj); err != nil {
-			return reconcile.Result{}, err
+		if _, ok := obj.GetAnnotations()[s.Keys.TargetClustersAnnotation]; ok {
+			if err := s.reconcileRemote(ctx, obj); err != nil {
+				return reconcile.Result{}, err
+			}
 		}
 	}
 	return reconcile.Result{}, nil

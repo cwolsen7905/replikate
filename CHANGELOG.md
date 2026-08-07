@@ -16,8 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selector fan-out). De-listed spokes are pruned and copies are removed when the
   source is deleted. Fan-out is best-effort per spoke: an unreachable or
   misconfigured cluster is reported via an event and skipped, never blocking the
-  local replication path. Caveat: until the `origin-cluster` label lands, do not
-  register the hub as its own spoke.
+  local replication path. Sources without the annotation never contact a spoke;
+  to stop remote replication and prune remote copies, set the annotation to `""`
+  rather than removing it. Spoke requests are bounded by a 10s timeout. Caveat:
+  until the `origin-cluster` label lands, do not register the hub as its own
+  spoke.
 - Cross-cluster **cluster registry** (Phase 1 of cross-cluster replication,
   behind `--enable-cross-cluster`): Replikate discovers spoke clusters from
   Secrets labeled `replikate.brainchurts.com/cluster-credential` in its
