@@ -8,6 +8,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -136,4 +137,15 @@ func restConfigFromCredential(secret *corev1.Secret) (*rest.Config, error) {
 func connectivityCheck(ctx context.Context, c client.Client) error {
 	var ns corev1.NamespaceList
 	return c.List(ctx, &ns, client.Limit(1))
+}
+
+// ClusterUIDFromConfig reads the kube-system namespace UID for the cluster
+// described by cfg, using a one-off direct client. It identifies the hub so the
+// credential reconciler can reject a spoke credential that resolves back to it.
+func ClusterUIDFromConfig(cfg *rest.Config, scheme *runtime.Scheme) (string, error) {
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return "", err
+	}
+	return clusterUID(context.Background(), c)
 }

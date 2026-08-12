@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+### Changed
+
+- The cross-cluster self-cluster guard now identifies the hub by its
+  `kube-system` namespace UID instead of an API-server host string, so a
+  credential that reaches the hub via a different URL (external LB, IP vs DNS)
+  is still refused. The check runs after the connectivity check, since it reads
+  the candidate cluster.
 
 ## [1.1.0] - 2026-08-07
 

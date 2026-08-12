@@ -113,17 +113,23 @@ func main() {
 	}
 
 	if enableCrossCluster {
+		// Resolve the hub's own cluster identity so the credential reconciler can
+		// reject a spoke credential that resolves back to the hub.
+		hubUID, err := controller.ClusterUIDFromConfig(mgr.GetConfig(), scheme)
+		if err != nil {
+			setupLog.Error(err, "unable to read hub cluster identity; self-cluster guard disabled")
+		}
 		if err := (&controller.ClusterCredentialReconciler{
-			Client:    mgr.GetClient(),
-			Registry:  registry,
-			Recorder:  mgr.GetEventRecorderFor("replikate-cluster"),
-			Namespace: credentialNamespace,
-			HubHost:   mgr.GetConfig().Host,
+			Client:        mgr.GetClient(),
+			Registry:      registry,
+			Recorder:      mgr.GetEventRecorderFor("replikate-cluster"),
+			Namespace:     credentialNamespace,
+			HubClusterUID: hubUID,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClusterCredential")
 			os.Exit(1)
 		}
-		setupLog.Info("cross-cluster registry enabled", "credentialNamespace", credentialNamespace)
+		setupLog.Info("cross-cluster registry enabled", "credentialNamespace", credentialNamespace, "hubClusterUID", hubUID)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

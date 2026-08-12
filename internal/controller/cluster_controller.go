@@ -2,11 +2,11 @@ package controller
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -31,13 +31,13 @@ type ClusterCredentialReconciler struct {
 	Registry  *ClusterRegistry
 	Recorder  record.EventRecorder
 	Namespace string // the namespace credential Secrets live in
-	// HubHost is the hub's own API server URL. A credential pointing at it is
+	// HubClusterUID is the UID of the hub's own kube-system namespace — a stable
+	// per-cluster identity. A credential that resolves to the same UID is
 	// rejected: replicating into the hub-as-a-spoke would make the controller
-	// treat its own local copies as remote and delete them. This is an exact
-	// host-string check — it catches the obvious mistake, but a credential that
-	// reaches the same cluster via a different URL (external LB, IP vs DNS) can
-	// still slip through. A robust cluster-UID identity check is a pass-3 item.
-	HubHost string
+	// treat its own local copies as remote and delete them. Unlike an API-host
+	// string compare, this is immune to the same cluster being reached via a
+	// different URL (external LB, IP vs DNS). Empty disables the check.
+	HubClusterUID string
 }
 
 // Reconcile registers, refreshes, or deregisters the spoke cluster named by the
@@ -55,17 +55,6 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
-	}
-
-	// Refuse a credential that points at the hub's own API server — see HubHost.
-	if r.HubHost != "" {
-		if cfg, perr := restConfigFromCredential(&secret); perr == nil && sameAPIHost(cfg.Host, r.HubHost) {
-			r.Registry.Remove(id)
-			l.Info("refusing self-referential cluster credential", "cluster", id, "host", cfg.Host)
-			r.Recorder.Event(&secret, corev1.EventTypeWarning, "SelfCluster",
-				"Refusing credential that points at the hub's own API server")
-			return ctrl.Result{}, nil
-		}
 	}
 
 	c, err := r.Registry.Upsert(id, &secret)
@@ -86,6 +75,18 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{RequeueAfter: clusterRecheckInterval}, nil
 	}
 
+	// Refuse a credential that resolves to the hub itself (see HubClusterUID).
+	// This needs a reachable client, so it runs after the connectivity check.
+	if r.HubClusterUID != "" {
+		if uid, uerr := clusterUID(ctx, c); uerr == nil && uid == r.HubClusterUID {
+			r.Registry.Remove(id)
+			l.Info("refusing self-referential cluster credential", "cluster", id, "clusterUID", uid)
+			r.Recorder.Event(&secret, corev1.EventTypeWarning, "SelfCluster",
+				"Refusing credential that resolves to the hub's own cluster")
+			return ctrl.Result{}, nil
+		}
+	}
+
 	r.Registry.SetUp(id, true)
 	l.Info("registered spoke cluster", "cluster", id)
 	r.Recorder.Event(&secret, corev1.EventTypeNormal, "ClusterConnected", "Registered spoke cluster "+id)
@@ -94,10 +95,14 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	return ctrl.Result{RequeueAfter: clusterRecheckInterval}, nil
 }
 
-// sameAPIHost reports whether two API server URLs refer to the same endpoint,
-// ignoring a trailing slash.
-func sameAPIHost(a, b string) bool {
-	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
+// clusterUID returns the UID of the cluster's kube-system namespace, a stable
+// identifier for the cluster behind c.
+func clusterUID(ctx context.Context, c client.Client) (string, error) {
+	var ns corev1.Namespace
+	if err := c.Get(ctx, types.NamespacedName{Name: "kube-system"}, &ns); err != nil {
+		return "", err
+	}
+	return string(ns.UID), nil
 }
 
 // SetupWithManager wires the controller to watch only labeled credential Secrets

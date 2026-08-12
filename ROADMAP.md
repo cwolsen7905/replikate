@@ -83,8 +83,10 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
     - ✅ **Dual-envtest** — an integration test runs the real manager against
       two separate control planes and asserts a source in the hub replicates
       into the spoke, prunes on target drop, and cleans up on delete.
-    - 🔭 **Pass 3:** `origin-cluster` label (multi-hub coexistence), robust
-      self-cluster identity (compare cluster UID, not just API host), a
+    - ✅ **Robust self-cluster identity** — the self-cluster guard now compares
+      the spoke's `kube-system` UID against the hub's, immune to the same
+      cluster being reached via a different URL (the old API-host check).
+    - 🔭 **Pass 3:** `origin-cluster` label (multi-hub coexistence), a
       credential→source watch so a new spoke fans out promptly instead of on
       requeue, and an optional per-target namespace override.
   - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke

@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -12,47 +14,54 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestSameAPIHost(t *testing.T) {
-	cases := []struct {
-		a, b string
-		want bool
-	}{
-		{"https://1.2.3.4:6443", "https://1.2.3.4:6443", true},
-		{"https://1.2.3.4:6443/", "https://1.2.3.4:6443", true},
-		{"https://1.2.3.4:6443", "https://5.6.7.8:6443", false},
-		{"https://host:6443", "https://host:8443", false},
+// kubeSystem returns a kube-system namespace object carrying uid, used to give a
+// fake cluster a stable identity.
+func kubeSystem(uid string) *corev1.Namespace {
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: types.UID(uid)}}
+}
+
+func TestClusterUID(t *testing.T) {
+	c := fake.NewClientBuilder().WithObjects(kubeSystem("abc-123")).Build()
+	got, err := clusterUID(context.Background(), c)
+	if err != nil {
+		t.Fatalf("clusterUID: %v", err)
 	}
-	for _, tc := range cases {
-		if got := sameAPIHost(tc.a, tc.b); got != tc.want {
-			t.Errorf("sameAPIHost(%q,%q) = %v, want %v", tc.a, tc.b, got, tc.want)
-		}
+	if got != "abc-123" {
+		t.Errorf("clusterUID = %q, want abc-123", got)
 	}
 }
 
-// TestClusterCredential_RejectsSelfCluster verifies the guard: a credential
-// whose kubeconfig server matches the hub's is refused, never registered, and
-// raises a SelfCluster event.
-func TestClusterCredential_RejectsSelfCluster(t *testing.T) {
-	// testKubeconfig points at https://spoke.example:6443 — make that the hub.
+// reconcileCredential drives the credential reconciler once for id, with the
+// registry building spokeClient for it.
+func reconcileCredential(t *testing.T, id, hubUID string, spokeClient client.Client) (*ClusterRegistry, *record.FakeRecorder) {
+	t.Helper()
 	rec := record.NewFakeRecorder(10)
 	reg := NewClusterRegistry(func(_ *rest.Config, _ string) (client.Client, error) {
-		return fake.NewClientBuilder().Build(), nil
+		return spokeClient, nil
 	})
-	cred := credentialSecret("self", map[string][]byte{credentialKubeconfigKey: []byte(testKubeconfig)})
-	cl := fake.NewClientBuilder().WithObjects(cred).Build()
+	cred := credentialSecret(id, map[string][]byte{credentialKubeconfigKey: []byte(testKubeconfig)})
+	hub := fake.NewClientBuilder().WithObjects(cred).Build()
 
 	r := &ClusterCredentialReconciler{
-		Client:    cl,
-		Registry:  reg,
-		Recorder:  rec,
-		Namespace: "replikate-system",
-		HubHost:   "https://spoke.example:6443", // == the credential's server
+		Client:        hub,
+		Registry:      reg,
+		Recorder:      rec,
+		Namespace:     "replikate-system",
+		HubClusterUID: hubUID,
 	}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "replikate-system", Name: "self"},
+		NamespacedName: types.NamespacedName{Namespace: "replikate-system", Name: id},
 	}); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+	return reg, rec
+}
+
+// TestClusterCredential_RejectsSelfCluster: a credential whose cluster UID
+// matches the hub's is refused, never registered, and raises a SelfCluster event.
+func TestClusterCredential_RejectsSelfCluster(t *testing.T) {
+	spoke := fake.NewClientBuilder().WithObjects(kubeSystem("hub-uid")).Build()
+	reg, rec := reconcileCredential(t, "self", "hub-uid", spoke)
 
 	if _, ok := reg.ClientFor("self"); ok {
 		t.Error("a self-referential credential must not be registered")
@@ -62,28 +71,12 @@ func TestClusterCredential_RejectsSelfCluster(t *testing.T) {
 	}
 }
 
-// TestClusterCredential_RegistersDistinctSpoke is the positive counterpart: a
-// credential whose server differs from the hub is registered normally.
+// TestClusterCredential_RegistersDistinctSpoke: a credential whose cluster UID
+// differs from the hub's registers normally.
 func TestClusterCredential_RegistersDistinctSpoke(t *testing.T) {
-	rec := record.NewFakeRecorder(10)
-	reg := NewClusterRegistry(func(_ *rest.Config, _ string) (client.Client, error) {
-		return fake.NewClientBuilder().Build(), nil // connectivity check passes
-	})
-	cred := credentialSecret("spoke-a", map[string][]byte{credentialKubeconfigKey: []byte(testKubeconfig)})
-	cl := fake.NewClientBuilder().WithObjects(cred).Build()
+	spoke := fake.NewClientBuilder().WithObjects(kubeSystem("spoke-uid")).Build()
+	reg, _ := reconcileCredential(t, "spoke-a", "hub-uid", spoke)
 
-	r := &ClusterCredentialReconciler{
-		Client:    cl,
-		Registry:  reg,
-		Recorder:  rec,
-		Namespace: "replikate-system",
-		HubHost:   "https://different-hub:6443",
-	}
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "replikate-system", Name: "spoke-a"},
-	}); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
 	if _, ok := reg.ClientFor("spoke-a"); !ok {
 		t.Error("a distinct spoke credential should be registered")
 	}

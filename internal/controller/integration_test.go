@@ -78,12 +78,16 @@ func TestMain(m *testing.M) {
 	if err := (&SecretReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
 		panic("setup secret: " + err.Error())
 	}
+	hubUID, err := ClusterUIDFromConfig(cfg, mgr.GetScheme()) // enable the self-cluster guard
+	if err != nil {
+		panic("read hub cluster UID: " + err.Error())
+	}
 	if err := (&ClusterCredentialReconciler{
-		Client:    mgr.GetClient(),
-		Registry:  testRegistry,
-		Recorder:  mgr.GetEventRecorderFor("replikate-cluster"),
-		Namespace: credentialNS,
-		HubHost:   cfg.Host, // enable the self-as-spoke guard
+		Client:        mgr.GetClient(),
+		Registry:      testRegistry,
+		Recorder:      mgr.GetEventRecorderFor("replikate-cluster"),
+		Namespace:     credentialNS,
+		HubClusterUID: hubUID,
 	}).SetupWithManager(mgr); err != nil {
 		panic("setup cluster-credential: " + err.Error())
 	}
