@@ -76,10 +76,11 @@ func (r *ClusterRegistry) IDs() []string {
 	return ids
 }
 
-// Upsert registers (or replaces) the cluster built from secret's kubeconfig and
-// returns the built client. It does not mark the cluster up; the caller runs a
-// connectivity check and calls SetUp.
-func (r *ClusterRegistry) Upsert(id string, secret *corev1.Secret) (client.Client, error) {
+// BuildClient builds — but does not register — a client from secret's
+// kubeconfig. The caller can validate the cluster (reachability, identity)
+// before registering it with Store, so a bad or self-referential credential is
+// never briefly live in the registry.
+func (r *ClusterRegistry) BuildClient(id string, secret *corev1.Secret) (client.Client, error) {
 	cfg, err := restConfigFromCredential(secret)
 	if err != nil {
 		return nil, err
@@ -88,9 +89,24 @@ func (r *ClusterRegistry) Upsert(id string, secret *corev1.Secret) (client.Clien
 	if err != nil {
 		return nil, fmt.Errorf("build client for cluster %q: %w", id, err)
 	}
+	return c, nil
+}
+
+// Store registers a pre-built client under id (replacing any existing entry).
+func (r *ClusterRegistry) Store(id string, c client.Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.clusters[id] = &clusterConn{client: c}
+}
+
+// Upsert builds and registers the cluster in one step. Prefer BuildClient +
+// validation + Store on paths that must vet a cluster before it goes live.
+func (r *ClusterRegistry) Upsert(id string, secret *corev1.Secret) (client.Client, error) {
+	c, err := r.BuildClient(id, secret)
+	if err != nil {
+		return nil, err
+	}
+	r.Store(id, c)
 	return c, nil
 }
 

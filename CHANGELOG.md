@@ -12,8 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The cross-cluster self-cluster guard now identifies the hub by its
   `kube-system` namespace UID instead of an API-server host string, so a
   credential that reaches the hub via a different URL (external LB, IP vs DNS)
-  is still refused. The check runs after the connectivity check, since it reads
-  the candidate cluster.
+  is still refused. A candidate is vetted (reachable, not the hub) *before* it
+  is registered, so a self-referential credential is never briefly live in the
+  registry. The guard fails closed: a candidate whose identity can't be read is
+  refused with an `IdentityUnverified` event rather than registered on faith,
+  and the hub identity is read with retries at startup so a transient blip
+  doesn't silently disable it.
 
 ## [1.1.0] - 2026-08-07
 

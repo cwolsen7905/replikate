@@ -81,3 +81,18 @@ func TestClusterCredential_RegistersDistinctSpoke(t *testing.T) {
 		t.Error("a distinct spoke credential should be registered")
 	}
 }
+
+// TestClusterCredential_UnverifiableIdentityRejected: with the guard enabled,
+// a spoke whose identity can't be read (no kube-system) is refused rather than
+// registered on faith, and the reason is surfaced as an event.
+func TestClusterCredential_UnverifiableIdentityRejected(t *testing.T) {
+	spoke := fake.NewClientBuilder().Build() // no kube-system → clusterUID errors
+	reg, rec := reconcileCredential(t, "opaque", "hub-uid", spoke)
+
+	if _, ok := reg.ClientFor("opaque"); ok {
+		t.Error("a spoke whose identity can't be verified must not be registered")
+	}
+	if !hasEvent(rec, "IdentityUnverified") {
+		t.Error("expected an IdentityUnverified event")
+	}
+}

@@ -57,12 +57,16 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	c, err := r.Registry.Upsert(id, &secret)
+	// Build the client but do NOT register it yet: it must pass reachability and
+	// the self-cluster check first, so a bad or self-referential credential is
+	// never briefly live in the registry (a source reconcile on another worker
+	// could otherwise fan out to it).
+	c, err := r.Registry.BuildClient(id, &secret)
 	if err != nil {
 		// A malformed credential is a user error; requeuing won't help until the
 		// Secret changes, which re-triggers us. Record it and stop.
 		l.Error(err, "invalid cluster credential", "cluster", id)
-		r.Registry.SetUp(id, false)
+		r.Registry.Remove(id)
 		r.Recorder.Event(&secret, corev1.EventTypeWarning, "InvalidCredential", err.Error())
 		return ctrl.Result{}, nil
 	}
@@ -75,10 +79,19 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{RequeueAfter: clusterRecheckInterval}, nil
 	}
 
-	// Refuse a credential that resolves to the hub itself (see HubClusterUID).
-	// This needs a reachable client, so it runs after the connectivity check.
+	// Self-cluster check (see HubClusterUID). Fail closed: if the candidate's
+	// identity can't be read we refuse to register it rather than risk a
+	// self-spoke, and surface it so the misconfiguration is visible.
 	if r.HubClusterUID != "" {
-		if uid, uerr := clusterUID(ctx, c); uerr == nil && uid == r.HubClusterUID {
+		uid, uerr := clusterUID(ctx, c)
+		if uerr != nil {
+			r.Registry.Remove(id)
+			l.Error(uerr, "could not verify cluster identity; refusing to register", "cluster", id)
+			r.Recorder.Event(&secret, corev1.EventTypeWarning, "IdentityUnverified",
+				"Refusing to register: could not read cluster identity: "+uerr.Error())
+			return ctrl.Result{RequeueAfter: clusterRecheckInterval}, nil
+		}
+		if uid == r.HubClusterUID {
 			r.Registry.Remove(id)
 			l.Info("refusing self-referential cluster credential", "cluster", id, "clusterUID", uid)
 			r.Recorder.Event(&secret, corev1.EventTypeWarning, "SelfCluster",
@@ -87,6 +100,8 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		}
 	}
 
+	// Vetted: register it.
+	r.Registry.Store(id, c)
 	r.Registry.SetUp(id, true)
 	l.Info("registered spoke cluster", "cluster", id)
 	r.Recorder.Event(&secret, corev1.EventTypeNormal, "ClusterConnected", "Registered spoke cluster "+id)
