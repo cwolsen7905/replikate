@@ -8,6 +8,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,10 +76,11 @@ func (r *ClusterRegistry) IDs() []string {
 	return ids
 }
 
-// Upsert registers (or replaces) the cluster built from secret's kubeconfig and
-// returns the built client. It does not mark the cluster up; the caller runs a
-// connectivity check and calls SetUp.
-func (r *ClusterRegistry) Upsert(id string, secret *corev1.Secret) (client.Client, error) {
+// BuildClient builds — but does not register — a client from secret's
+// kubeconfig. The caller can validate the cluster (reachability, identity)
+// before registering it with Store, so a bad or self-referential credential is
+// never briefly live in the registry.
+func (r *ClusterRegistry) BuildClient(id string, secret *corev1.Secret) (client.Client, error) {
 	cfg, err := restConfigFromCredential(secret)
 	if err != nil {
 		return nil, err
@@ -87,9 +89,24 @@ func (r *ClusterRegistry) Upsert(id string, secret *corev1.Secret) (client.Clien
 	if err != nil {
 		return nil, fmt.Errorf("build client for cluster %q: %w", id, err)
 	}
+	return c, nil
+}
+
+// Store registers a pre-built client under id (replacing any existing entry).
+func (r *ClusterRegistry) Store(id string, c client.Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.clusters[id] = &clusterConn{client: c}
+}
+
+// Upsert builds and registers the cluster in one step. Prefer BuildClient +
+// validation + Store on paths that must vet a cluster before it goes live.
+func (r *ClusterRegistry) Upsert(id string, secret *corev1.Secret) (client.Client, error) {
+	c, err := r.BuildClient(id, secret)
+	if err != nil {
+		return nil, err
+	}
+	r.Store(id, c)
 	return c, nil
 }
 
@@ -136,4 +153,15 @@ func restConfigFromCredential(secret *corev1.Secret) (*rest.Config, error) {
 func connectivityCheck(ctx context.Context, c client.Client) error {
 	var ns corev1.NamespaceList
 	return c.List(ctx, &ns, client.Limit(1))
+}
+
+// ClusterUIDFromConfig reads the kube-system namespace UID for the cluster
+// described by cfg, using a one-off direct client. It identifies the hub so the
+// credential reconciler can reject a spoke credential that resolves back to it.
+func ClusterUIDFromConfig(cfg *rest.Config, scheme *runtime.Scheme) (string, error) {
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return "", err
+	}
+	return clusterUID(context.Background(), c)
 }

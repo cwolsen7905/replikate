@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -113,17 +114,32 @@ func main() {
 	}
 
 	if enableCrossCluster {
+		// Resolve the hub's own cluster identity so the credential reconciler can
+		// reject a spoke credential that resolves back to the hub. Retry a few
+		// times so a transient API blip at startup doesn't permanently disable a
+		// data-loss guard for the whole process.
+		var hubUID string
+		for attempt := 1; attempt <= 5; attempt++ {
+			var uerr error
+			if hubUID, uerr = controller.ClusterUIDFromConfig(mgr.GetConfig(), scheme); uerr == nil {
+				break
+			} else if attempt == 5 {
+				setupLog.Error(uerr, "unable to read hub cluster identity after retries; SELF-CLUSTER GUARD DISABLED")
+			} else {
+				time.Sleep(2 * time.Second)
+			}
+		}
 		if err := (&controller.ClusterCredentialReconciler{
-			Client:    mgr.GetClient(),
-			Registry:  registry,
-			Recorder:  mgr.GetEventRecorderFor("replikate-cluster"),
-			Namespace: credentialNamespace,
-			HubHost:   mgr.GetConfig().Host,
+			Client:        mgr.GetClient(),
+			Registry:      registry,
+			Recorder:      mgr.GetEventRecorderFor("replikate-cluster"),
+			Namespace:     credentialNamespace,
+			HubClusterUID: hubUID,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClusterCredential")
 			os.Exit(1)
 		}
-		setupLog.Info("cross-cluster registry enabled", "credentialNamespace", credentialNamespace)
+		setupLog.Info("cross-cluster registry enabled", "credentialNamespace", credentialNamespace, "hubClusterUID", hubUID)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
