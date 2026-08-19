@@ -90,8 +90,11 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
       `origin-cluster` label (the hub's cluster UID); pruning and the conflict
       guard are scoped to it, so two hubs can target one spoke without deleting
       or clobbering each other's copies.
-    - 🔭 **Pass 3:** a credential→source watch so a new spoke fans out promptly
-      instead of on requeue, and an optional per-target namespace override.
+    - ✅ **Prompt fan-out** — when a spoke registers, the credential reconciler
+      notifies the source controllers (per-kind channel) to re-drive sources
+      targeting it, so a new spoke fans out at once instead of on a requeue. An
+      unresolved (typo) target no longer requeue-polls forever.
+    - 🔭 **Pass 3:** an optional per-target namespace override.
   - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke
     namespace + managed-copy watches (opt-in native fan-out).
   - 🔭 **Phase 4 — webhook + metrics + packaging.**

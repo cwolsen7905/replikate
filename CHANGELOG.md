@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cross-cluster **prompt fan-out**: when a spoke registers, the credential
+  reconciler notifies the ConfigMap/Secret controllers so sources targeting that
+  spoke are re-driven immediately, rather than waiting for a requeue. As a
+  result, a source naming an unregistered (e.g. mistyped) cluster no longer
+  requeues in a loop — it re-drives if and when that spoke's credential appears.
 - Cross-cluster **multi-hub coexistence**: cross-cluster copies now carry an
   `replikate.brainchurts.com/origin-cluster` label set to the hub's cluster UID.
   Remote pruning and the conflict guard are scoped to it, so two hubs replicating

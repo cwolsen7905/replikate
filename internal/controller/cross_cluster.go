@@ -21,15 +21,13 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 	targets := NamespaceSet(src.GetAnnotations()[s.Keys.TargetClustersAnnotation])
 
 	// Warn about targeted clusters that aren't registered, so a typo or a
-	// missing credential is visible rather than silent. Treated as a failure so
-	// the source is requeued: this self-heals once the spoke's credential is
-	// added (there is no credential->source watch yet — a pass-3 item that would
-	// let us stop polling here). The cost of a genuine typo is a repeating event.
+	// missing credential is visible rather than silent. Not treated as a failure:
+	// a genuine typo shouldn't requeue forever, and a spoke that registers later
+	// re-drives this source via the credential reconciler's notification.
 	for id := range targets {
 		if _, ok := s.Registry.ClientFor(id); !ok {
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "UnknownCluster",
 				"target-clusters names unregistered cluster %q", id)
-			failed = true
 		}
 	}
 

@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -116,11 +117,19 @@ func main() {
 	setupLog.Info("using annotation domain", "domain", annotationDomain)
 	setupLog.Info("excluding namespaces", "namespaces", excludeNamespaces)
 
-	if err := (&controller.ConfigMapReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
+	// Per-kind channels the credential reconciler signals when a spoke registers,
+	// so sources targeting it fan out promptly (nil when cross-cluster is off).
+	var cmReady, secReady chan event.GenericEvent
+	if enableCrossCluster {
+		cmReady = make(chan event.GenericEvent, 64)
+		secReady = make(chan event.GenericEvent, 64)
+	}
+
+	if err := (&controller.ConfigMapReconciler{Syncer: syncer, ClusterReady: cmReady}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 		os.Exit(1)
 	}
-	if err := (&controller.SecretReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.SecretReconciler{Syncer: syncer, ClusterReady: secReady}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Secret")
 		os.Exit(1)
 	}
@@ -138,6 +147,7 @@ func main() {
 			Recorder:      mgr.GetEventRecorderFor("replikate-cluster"),
 			Namespace:     credentialNamespace,
 			HubClusterUID: hubUID,
+			Notify:        []chan<- event.GenericEvent{cmReady, secReady},
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClusterCredential")
 			os.Exit(1)

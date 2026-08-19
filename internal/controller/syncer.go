@@ -335,6 +335,27 @@ func (s *Syncer) sourceRequests(ctx context.Context, list client.ObjectList) []r
 	return reqs
 }
 
+// mapCredentialToSources maps a just-registered spoke (obj's name is the
+// cluster id) to reconcile requests for every source of the kind backing list
+// whose target-clusters annotation names it, so a newly-added spoke fans out
+// promptly instead of waiting for the next requeue.
+func (s *Syncer) mapCredentialToSources(ctx context.Context, obj client.Object, list client.ObjectList) []reconcile.Request {
+	clusterID := obj.GetName()
+	if err := s.List(ctx, list, client.MatchingFields{SourceIndexField: sourceIndexTrue}); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for _, o := range listItems(list) {
+		if NamespaceSet(o.GetAnnotations()[s.Keys.TargetClustersAnnotation])[clusterID] {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: o.GetNamespace(),
+				Name:      o.GetName(),
+			}})
+		}
+	}
+	return reqs
+}
+
 // mapCopyToSource maps a managed copy back to a reconcile request for its
 // source, so that editing or deleting a copy re-drives the source and restores
 // the copy — near-instant drift correction, rather than waiting for a resync.
