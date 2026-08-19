@@ -113,6 +113,10 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 
 	// Nudge the source controllers to fan out to this spoke now that it's live.
 	// Non-blocking: the periodic recheck below re-notifies if a buffer is full.
+	// This fires on every successful reconcile, including the periodic rechecks,
+	// so cross-cluster sources are also re-driven roughly every recheck interval
+	// — an intentional, lightweight remote resync until real remote drift
+	// correction lands.
 	for _, ch := range r.Notify {
 		select {
 		case ch <- event.GenericEvent{Object: secret.DeepCopy()}:
