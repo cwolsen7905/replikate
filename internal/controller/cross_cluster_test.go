@@ -221,6 +221,62 @@ func TestReconcile_CrossClusterMultiHubCoexistence(t *testing.T) {
 	}
 }
 
+// legacyRemoteCopy is a managed cross-cluster copy from before the
+// origin-cluster label existed: origin ns/name but no origin-cluster.
+func legacyRemoteCopy(namespace, name, data string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				testKeys.ManagedByLabel:  ManagedByValue,
+				testKeys.OriginNSLabel:   namespace,
+				testKeys.OriginNameLabel: name,
+			},
+		},
+		Data: map[string]string{"k": data},
+	}
+}
+
+func TestReconcile_CrossClusterAdoptsLegacyCopy(t *testing.T) {
+	spoke := newSpoke()
+	// A pre-origin-cluster copy already sits on the spoke with stale data.
+	if err := spoke.Create(context.Background(), legacyRemoteCopy("default", "cfg", "OLD")); err != nil {
+		t.Fatalf("seed legacy copy: %v", err)
+	}
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke", map[string]string{"k": "NEW"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	s.HubClusterUID = "hub-a"
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	cm, _ := remoteCopy(t, spoke, "default", "cfg")
+	if cm.Data["k"] != "NEW" {
+		t.Errorf("legacy copy not updated: %v", cm.Data)
+	}
+	if cm.Labels[testKeys.OriginClusterLabel] != "hub-a" {
+		t.Errorf("adopted legacy copy not stamped with origin-cluster: %v", cm.Labels)
+	}
+}
+
+func TestReconcile_CrossClusterPrunesLegacyCopy(t *testing.T) {
+	spoke := newSpoke()
+	if err := spoke.Create(context.Background(), legacyRemoteCopy("default", "cfg", "OLD")); err != nil {
+		t.Fatalf("seed legacy copy: %v", err)
+	}
+	// Source exists but does NOT target the spoke, so the legacy copy there must
+	// be pruned despite lacking an origin-cluster label.
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	s.HubClusterUID = "hub-a"
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	if _, ok := remoteCopy(t, spoke, "default", "cfg"); ok {
+		t.Error("legacy copy on a de-listed spoke should have been pruned")
+	}
+}
+
 func TestReconcile_CrossClusterUnknownClusterEvent(t *testing.T) {
 	s, rec := newTestSyncer(
 		ns("default", nil),

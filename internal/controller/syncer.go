@@ -233,11 +233,15 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 	// Conflict event instead of a silent clobber war.
 	if managed && !s.Keys.ownsCopy(existing, src, originCluster) {
 		owner := existing.GetLabels()
+		ownerCluster := owner[s.Keys.OriginClusterLabel]
+		if ownerCluster == "" {
+			ownerCluster = "local"
+		}
 		l.Info("refusing to overwrite copy owned by another source", "namespace", ns, "name", src.GetName(),
-			"owner", owner[s.Keys.OriginNSLabel]+"/"+owner[s.Keys.OriginNameLabel])
+			"owner", owner[s.Keys.OriginNSLabel]+"/"+owner[s.Keys.OriginNameLabel], "ownerCluster", ownerCluster)
 		s.Recorder.Eventf(src, corev1.EventTypeWarning, "Conflict",
-			"Refusing to overwrite %s/%s owned by source %s/%s",
-			ns, src.GetName(), owner[s.Keys.OriginNSLabel], owner[s.Keys.OriginNameLabel])
+			"Refusing to overwrite %s/%s owned by source %s/%s on cluster %s",
+			ns, src.GetName(), owner[s.Keys.OriginNSLabel], owner[s.Keys.OriginNameLabel], ownerCluster)
 		return actionNone, nil
 	}
 
@@ -267,23 +271,26 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.Object, keep map[string]bool, originCluster string) (int, error) {
 	l := log.FromContext(ctx)
 	list := emptyListLike(src)
-	match := client.MatchingLabels{
+	if err := cl.List(ctx, list, client.MatchingLabels{
 		s.Keys.ManagedByLabel:  ManagedByValue,
 		s.Keys.OriginNSLabel:   src.GetNamespace(),
 		s.Keys.OriginNameLabel: src.GetName(),
-	}
-	if originCluster != "" {
-		// Only prune copies this hub owns, so co-targeting hubs don't delete
-		// each other's copies on a shared spoke.
-		match[s.Keys.OriginClusterLabel] = originCluster
-	}
-	if err := cl.List(ctx, list, match); err != nil {
+	}); err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, c := range listItems(list) {
 		if keep != nil && keep[c.GetNamespace()] {
 			continue
+		}
+		// On a shared spoke, prune only copies this hub owns — its own
+		// (matching origin-cluster) plus legacy unlabeled ones — never a copy
+		// stamped by another hub. (Server-side labels can't match "== X or
+		// absent", so this is filtered here.)
+		if originCluster != "" {
+			if oc := c.GetLabels()[s.Keys.OriginClusterLabel]; oc != "" && oc != originCluster {
+				continue
+			}
 		}
 		l.Info("deleting copy", "namespace", c.GetNamespace(), "name", c.GetName())
 		if err := cl.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {

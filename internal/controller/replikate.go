@@ -89,7 +89,10 @@ func (k Keys) ownsCopy(copy, src client.Object, originCluster string) bool {
 	if ls[k.OriginNSLabel] != src.GetNamespace() || ls[k.OriginNameLabel] != src.GetName() {
 		return false
 	}
-	if originCluster != "" && ls[k.OriginClusterLabel] != originCluster {
+	// Reject only a copy stamped by a *different* hub. A copy with no
+	// origin-cluster label (e.g. one written before this label existed) is
+	// adopted and gets stamped on the next write.
+	if originCluster != "" && ls[k.OriginClusterLabel] != "" && ls[k.OriginClusterLabel] != originCluster {
 		return false
 	}
 	return true
