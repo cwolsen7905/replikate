@@ -334,6 +334,35 @@ func TestReconcile_CrossClusterNamespaceOverrideChange(t *testing.T) {
 	}
 }
 
+func TestReconcile_CrossClusterSteadyStateSkipsPrune(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke:shared", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	// A stray managed copy of this source in another namespace on the spoke.
+	stray := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      "cfg",
+		Namespace: "leftover",
+		Labels: map[string]string{
+			testKeys.ManagedByLabel:  ManagedByValue,
+			testKeys.OriginNSLabel:   "default",
+			testKeys.OriginNameLabel: "cfg",
+		},
+	}}
+	if err := spoke.Create(context.Background(), stray); err != nil {
+		t.Fatalf("seed stray: %v", err)
+	}
+
+	// Steady-state reconcile (no create): the stale-namespace prune is skipped,
+	// so the stray survives — it costs no extra List on the hot path.
+	reconcileConfigMap(t, s, "default", "cfg")
+	if _, ok := remoteCopy(t, spoke, "leftover", "cfg"); !ok {
+		t.Error("steady-state reconcile should not run the stale-namespace prune")
+	}
+}
+
 func TestReconcile_CrossClusterUnknownClusterEvent(t *testing.T) {
 	s, rec := newTestSyncer(
 		ns("default", nil),

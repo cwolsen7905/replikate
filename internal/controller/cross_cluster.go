@@ -85,13 +85,17 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 			s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
 				"Replicated to cluster %q namespace %q", id, destNS)
 		}
-		// Prune copies left in other namespaces on this spoke — e.g. after the
-		// destination namespace override changed.
-		if n, err := s.deleteCopies(ctx, cl, src, map[string]bool{destNS: true}, s.HubClusterUID); err != nil {
-			l.Error(err, "cross-cluster stale-namespace cleanup failed", "cluster", id)
-			failed = true
-		} else if n > 0 {
-			remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
+		// Prune copies left in other namespaces on this spoke after the
+		// destination namespace override changed. Only needed when we just
+		// created a copy — a namespace change always shows up as a create in the
+		// new namespace — so steady-state reconciles skip the extra List.
+		if act == actionCreated {
+			if n, err := s.deleteCopies(ctx, cl, src, map[string]bool{destNS: true}, s.HubClusterUID); err != nil {
+				l.Error(err, "cross-cluster stale-namespace cleanup failed", "cluster", id)
+				failed = true
+			} else if n > 0 {
+				remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
+			}
 		}
 	}
 	return failed
