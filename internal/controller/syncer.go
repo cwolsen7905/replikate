@@ -31,6 +31,11 @@ type Syncer struct {
 	// target-clusters annotation names spoke clusters to also copy it into. Nil
 	// disables all cross-cluster behavior, leaving the local path unchanged.
 	Registry *ClusterRegistry
+	// HubClusterUID is this hub's own cluster identity, stamped as the
+	// origin-cluster label on cross-cluster copies so multiple hubs can target
+	// one spoke without pruning each other's copies. Empty leaves copies
+	// unstamped (multi-hub coexistence off).
+	HubClusterUID string
 }
 
 // DefaultExcludedNamespaces are the namespaces Replikate refuses to replicate
@@ -127,7 +132,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	// Create, update, or adopt a copy in every target namespace.
 	changed := 0
 	for ns := range targets {
-		act, err := s.upsertCopy(ctx, s.Client, obj, ns)
+		act, err := s.upsertCopy(ctx, s.Client, obj, ns, "")
 		if err != nil {
 			return reconcile.Result{}, err
 		}
@@ -138,7 +143,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	}
 
 	// Remove copies from namespaces that are no longer targets.
-	deleted, err := s.deleteCopies(ctx, s.Client, obj, targets)
+	deleted, err := s.deleteCopies(ctx, s.Client, obj, targets, "")
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -174,7 +179,7 @@ func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Objec
 	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
 		return nil
 	}
-	if n, err := s.deleteCopies(ctx, s.Client, obj, nil); err != nil {
+	if n, err := s.deleteCopies(ctx, s.Client, obj, nil, ""); err != nil {
 		return err
 	} else if n > 0 {
 		copyOperationsTotal.WithLabelValues(kindOf(obj), "deleted").Add(float64(n))
@@ -192,7 +197,7 @@ func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Objec
 // upsertCopy creates, updates, or adopts the managed copy of src in namespace
 // ns, and reports what it did. It refuses to overwrite an object it does not
 // manage unless that object is an adoptable config-syncer copy.
-func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Object, ns string) (action, error) {
+func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Object, ns, originCluster string) (action, error) {
 	l := log.FromContext(ctx)
 	key := types.NamespacedName{Namespace: ns, Name: src.GetName()}
 
@@ -203,7 +208,7 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 		desired := emptyLike(src)
 		desired.SetNamespace(ns)
 		desired.SetName(src.GetName())
-		s.Keys.applyCopyMeta(src, desired)
+		s.Keys.applyCopyMeta(src, desired, originCluster)
 		copyContents(src, desired)
 		l.Info("creating copy", "namespace", ns, "name", src.GetName())
 		if err := cl.Create(ctx, desired); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -226,18 +231,22 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 	// another namespace) must be left alone, or the two sources would overwrite
 	// each other's copy on every reconcile. First writer wins; the loser gets a
 	// Conflict event instead of a silent clobber war.
-	if managed && !s.Keys.ownsCopy(existing, src) {
+	if managed && !s.Keys.ownsCopy(existing, src, originCluster) {
 		owner := existing.GetLabels()
+		ownerCluster := owner[s.Keys.OriginClusterLabel]
+		if ownerCluster == "" {
+			ownerCluster = "local"
+		}
 		l.Info("refusing to overwrite copy owned by another source", "namespace", ns, "name", src.GetName(),
-			"owner", owner[s.Keys.OriginNSLabel]+"/"+owner[s.Keys.OriginNameLabel])
+			"owner", owner[s.Keys.OriginNSLabel]+"/"+owner[s.Keys.OriginNameLabel], "ownerCluster", ownerCluster)
 		s.Recorder.Eventf(src, corev1.EventTypeWarning, "Conflict",
-			"Refusing to overwrite %s/%s owned by source %s/%s",
-			ns, src.GetName(), owner[s.Keys.OriginNSLabel], owner[s.Keys.OriginNameLabel])
+			"Refusing to overwrite %s/%s owned by source %s/%s on cluster %s",
+			ns, src.GetName(), owner[s.Keys.OriginNSLabel], owner[s.Keys.OriginNameLabel], ownerCluster)
 		return actionNone, nil
 	}
 
 	before := existing.DeepCopyObject().(client.Object)
-	s.Keys.applyCopyMeta(src, existing)
+	s.Keys.applyCopyMeta(src, existing, originCluster)
 	copyContents(src, existing)
 	if managed && contentEqual(before, existing) {
 		return actionNone, nil // already in the desired state; skip the write
@@ -259,7 +268,7 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 // deleteCopies removes managed copies of src and reports how many it deleted.
 // When keep is non-nil, copies whose namespace is present in keep are retained;
 // when keep is nil, all copies go.
-func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.Object, keep map[string]bool) (int, error) {
+func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.Object, keep map[string]bool, originCluster string) (int, error) {
 	l := log.FromContext(ctx)
 	list := emptyListLike(src)
 	if err := cl.List(ctx, list, client.MatchingLabels{
@@ -273,6 +282,15 @@ func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.
 	for _, c := range listItems(list) {
 		if keep != nil && keep[c.GetNamespace()] {
 			continue
+		}
+		// On a shared spoke, prune only copies this hub owns — its own
+		// (matching origin-cluster) plus legacy unlabeled ones — never a copy
+		// stamped by another hub. (Server-side labels can't match "== X or
+		// absent", so this is filtered here.)
+		if originCluster != "" {
+			if oc := c.GetLabels()[s.Keys.OriginClusterLabel]; oc != "" && oc != originCluster {
+				continue
+			}
 		}
 		l.Info("deleting copy", "namespace", c.GetNamespace(), "name", c.GetName())
 		if err := cl.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
