@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+
+## [1.2.0] - 2026-08-11
+
+Cross-cluster hardening: multi-hub coexistence, a robust self-cluster identity
+check, and prompt fan-out to newly-registered spokes. Opt-in cross-cluster
+(`--enable-cross-cluster`); single-cluster behavior is unchanged.
+
 ### Added
 
 - Cross-cluster **prompt fan-out**: when a spoke registers, the credential
@@ -185,7 +193,8 @@ semantics are considered stable and won't change incompatibly without a 2.0.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/cwolsen7905/replikate/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/cwolsen7905/replikate/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cwolsen7905/replikate/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...v0.4.0
