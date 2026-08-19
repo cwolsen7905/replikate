@@ -290,15 +290,16 @@ func TestReconcile_CrossClusterUnknownClusterEvent(t *testing.T) {
 	}
 }
 
-func TestReconcile_CrossClusterRequeuesOnUnknownCluster(t *testing.T) {
+func TestReconcile_CrossClusterUnknownClusterDoesNotRequeue(t *testing.T) {
 	s, _ := newTestSyncer(
 		ns("default", nil),
 		sourceWithTargets("cfg", "default", "ghost", map[string]string{"k": "v"}),
 	)
 	s.Registry = registryWith(map[string]client.Client{"spoke-a": newSpoke()})
 
-	// Drive to steady state, capturing the last result: an unresolved target
-	// must requeue so it self-heals when the credential appears.
+	// An unresolved target must NOT requeue (that would poll a typo forever); it
+	// re-drives via the credential reconciler's notification if the spoke later
+	// registers.
 	r := &ConfigMapReconciler{Syncer: s}
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "cfg"}}
 	var last reconcile.Result
@@ -309,8 +310,31 @@ func TestReconcile_CrossClusterRequeuesOnUnknownCluster(t *testing.T) {
 		}
 		last = res
 	}
-	if last.RequeueAfter != remoteRetryInterval {
-		t.Errorf("expected RequeueAfter=%v on an unresolved target, got %v", remoteRetryInterval, last.RequeueAfter)
+	if last.RequeueAfter != 0 {
+		t.Errorf("expected no requeue on an unresolved target, got %v", last.RequeueAfter)
+	}
+}
+
+func TestMapCredentialToSources(t *testing.T) {
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		sourceWithTargets("wants-a", "default", "spoke-a,spoke-b", map[string]string{"k": "v"}),
+		sourceWithTargets("wants-b", "default", "spoke-b", map[string]string{"k": "v"}),
+		sourceCM("local-only", "default", "", map[string]string{"k": "v"}), // no target-clusters
+	)
+
+	cred := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "spoke-a", Namespace: "replikate-system"}}
+	reqs := s.mapCredentialToSources(context.Background(), cred, &corev1.ConfigMapList{})
+
+	got := map[string]bool{}
+	for _, r := range reqs {
+		got[r.Name] = true
+	}
+	if !got["wants-a"] {
+		t.Error("expected the source targeting spoke-a to be enqueued")
+	}
+	if got["wants-b"] || got["local-only"] {
+		t.Errorf("only sources targeting spoke-a should be enqueued, got %v", got)
 	}
 }
 

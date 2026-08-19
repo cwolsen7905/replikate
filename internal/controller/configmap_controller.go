@@ -7,13 +7,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ConfigMapReconciler replicates annotated ConfigMaps across namespaces.
 type ConfigMapReconciler struct {
 	*Syncer
+	// ClusterReady, when set, is signalled by the credential reconciler as spokes
+	// register, so sources targeting a new spoke fan out promptly.
+	ClusterReady <-chan event.GenericEvent
 }
 
 // Reconcile fetches the ConfigMap named by req and drives it to desired state.
@@ -35,7 +40,7 @@ func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		context.Background(), &corev1.ConfigMap{}, SourceIndexField, r.indexSource); err != nil {
 		return err
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.ConfigMap{}, builder.WithPredicates(r.sourcePredicate())).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(
 			func(ctx context.Context, _ client.Object) []reconcile.Request {
@@ -43,6 +48,12 @@ func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			})).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.mapCopyToSource),
 			builder.WithPredicates(r.managedCopyPredicate())).
-		Named("configmap").
-		Complete(r)
+		Named("configmap")
+	if r.ClusterReady != nil {
+		b = b.WatchesRawSource(source.Channel(r.ClusterReady, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, obj client.Object) []reconcile.Request {
+				return r.mapCredentialToSources(ctx, obj, &corev1.ConfigMapList{})
+			})))
+	}
+	return b.Complete(r)
 }

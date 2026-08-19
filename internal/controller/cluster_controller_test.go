@@ -12,7 +12,57 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
+
+// reconcileCredentialWithNotify drives the reconciler once with a Notify channel
+// and returns it, so tests can assert whether a registration notification fired.
+func reconcileCredentialWithNotify(t *testing.T, id, hubUID string, spokeClient client.Client) chan event.GenericEvent {
+	t.Helper()
+	reg := NewClusterRegistry(func(_ *rest.Config, _ string) (client.Client, error) {
+		return spokeClient, nil
+	})
+	cred := credentialSecret(id, map[string][]byte{credentialKubeconfigKey: []byte(testKubeconfig)})
+	hub := fake.NewClientBuilder().WithObjects(cred).Build()
+	notify := make(chan event.GenericEvent, 1)
+	r := &ClusterCredentialReconciler{
+		Client:        hub,
+		Registry:      reg,
+		Recorder:      record.NewFakeRecorder(10),
+		Namespace:     "replikate-system",
+		HubClusterUID: hubUID,
+		Notify:        []chan<- event.GenericEvent{notify},
+	}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "replikate-system", Name: id},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	return notify
+}
+
+func TestClusterCredential_NotifiesOnRegister(t *testing.T) {
+	spoke := fake.NewClientBuilder().WithObjects(kubeSystem("spoke-uid")).Build()
+	notify := reconcileCredentialWithNotify(t, "spoke-a", "hub-uid", spoke)
+	select {
+	case ev := <-notify:
+		if ev.Object.GetName() != "spoke-a" {
+			t.Errorf("notification named %q, want spoke-a", ev.Object.GetName())
+		}
+	default:
+		t.Error("expected a registration notification")
+	}
+}
+
+func TestClusterCredential_NoNotifyOnSelfCluster(t *testing.T) {
+	spoke := fake.NewClientBuilder().WithObjects(kubeSystem("hub-uid")).Build() // == hub
+	notify := reconcileCredentialWithNotify(t, "self", "hub-uid", spoke)
+	select {
+	case <-notify:
+		t.Error("a rejected self-cluster must not notify the source controllers")
+	default:
+	}
+}
 
 // kubeSystem returns a kube-system namespace object carrying uid, used to give a
 // fake cluster a stable identity.

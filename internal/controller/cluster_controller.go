@@ -11,6 +11,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -38,6 +39,10 @@ type ClusterCredentialReconciler struct {
 	// string compare, this is immune to the same cluster being reached via a
 	// different URL (external LB, IP vs DNS). Empty disables the check.
 	HubClusterUID string
+	// Notify are channels (one per source kind) signalled with the credential
+	// after a spoke is registered, so the source controllers can fan out to it
+	// immediately rather than waiting for a requeue.
+	Notify []chan<- event.GenericEvent
 }
 
 // Reconcile registers, refreshes, or deregisters the spoke cluster named by the
@@ -105,8 +110,21 @@ func (r *ClusterCredentialReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	r.Registry.SetUp(id, true)
 	l.Info("registered spoke cluster", "cluster", id)
 	r.Recorder.Event(&secret, corev1.EventTypeNormal, "ClusterConnected", "Registered spoke cluster "+id)
-	// Re-check periodically so a spoke that goes down flips the gauge even
-	// without a Secret change.
+
+	// Nudge the source controllers to fan out to this spoke now that it's live.
+	// Non-blocking: the periodic recheck below re-notifies if a buffer is full.
+	// This fires on every successful reconcile, including the periodic rechecks,
+	// so cross-cluster sources are also re-driven roughly every recheck interval
+	// — an intentional, lightweight remote resync until real remote drift
+	// correction lands.
+	for _, ch := range r.Notify {
+		select {
+		case ch <- event.GenericEvent{Object: secret.DeepCopy()}:
+		default:
+		}
+	}
+	// Re-check periodically so a spoke that goes down flips the gauge (and a
+	// dropped notification is retried) even without a Secret change.
 	return ctrl.Result{RequeueAfter: clusterRecheckInterval}, nil
 }
 

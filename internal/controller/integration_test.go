@@ -20,6 +20,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -72,10 +73,12 @@ func TestMain(m *testing.M) {
 		ExcludeNamespaces: NamespaceSet("kube-system,kube-public,kube-node-lease"),
 		Registry:          testRegistry, // cross-cluster active; only annotated sources fan out
 	}
-	if err := (&ConfigMapReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
+	cmReady := make(chan event.GenericEvent, 64)
+	secReady := make(chan event.GenericEvent, 64)
+	if err := (&ConfigMapReconciler{Syncer: syncer, ClusterReady: cmReady}).SetupWithManager(mgr); err != nil {
 		panic("setup configmap: " + err.Error())
 	}
-	if err := (&SecretReconciler{Syncer: syncer}).SetupWithManager(mgr); err != nil {
+	if err := (&SecretReconciler{Syncer: syncer, ClusterReady: secReady}).SetupWithManager(mgr); err != nil {
 		panic("setup secret: " + err.Error())
 	}
 	hubUID, err := ClusterUIDFromConfig(cfg, mgr.GetScheme()) // enable the self-cluster guard
@@ -88,6 +91,7 @@ func TestMain(m *testing.M) {
 		Recorder:      mgr.GetEventRecorderFor("replikate-cluster"),
 		Namespace:     credentialNS,
 		HubClusterUID: hubUID,
+		Notify:        []chan<- event.GenericEvent{cmReady, secReady},
 	}).SetupWithManager(mgr); err != nil {
 		panic("setup cluster-credential: " + err.Error())
 	}
