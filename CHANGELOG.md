@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet. See [ROADMAP.md](ROADMAP.md) for what's planned next.
+### Added
+
+- Cross-cluster **per-target namespace override**: an entry in the
+  `target-clusters` annotation may be `cluster:namespace` to place that spoke's
+  copy in a chosen namespace instead of the source's own (a bare `cluster` keeps
+  the previous behavior). Changing the override prunes the copy from the old
+  namespace on that spoke.
 
 ## [1.2.0] - 2026-08-11
 

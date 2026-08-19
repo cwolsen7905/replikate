@@ -94,7 +94,10 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
       notifies the source controllers (per-kind channel) to re-drive sources
       targeting it, so a new spoke fans out at once instead of on a requeue. An
       unresolved (typo) target no longer requeue-polls forever.
-    - 🔭 **Pass 3:** an optional per-target namespace override.
+    - ✅ **Per-target namespace override** — a `target-clusters` entry may be
+      `cluster:namespace` to place that spoke's copy in a chosen namespace
+      instead of the source's; changing it prunes the copy from the old
+      namespace.
   - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke
     namespace + managed-copy watches (opt-in native fan-out).
   - 🔭 **Phase 4 — webhook + metrics + packaging.**

@@ -277,6 +277,92 @@ func TestReconcile_CrossClusterPrunesLegacyCopy(t *testing.T) {
 	}
 }
 
+func TestParseTargetClusters(t *testing.T) {
+	got := parseTargetClusters(" spoke-a , spoke-b:shared ,, spoke-c: prod ")
+	want := map[string]string{"spoke-a": "", "spoke-b": "shared", "spoke-c": "prod"}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("cluster %q namespace = %q, want %q", k, got[k], v)
+		}
+	}
+	if parseTargetClusters("") != nil || parseTargetClusters(" , ") != nil {
+		t.Error("empty input should parse to nil")
+	}
+}
+
+func TestReconcile_CrossClusterNamespaceOverride(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke:shared", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	if _, ok := remoteCopy(t, spoke, "shared", "cfg"); !ok {
+		t.Error("expected the copy in the override namespace 'shared'")
+	}
+	if _, ok := remoteCopy(t, spoke, "default", "cfg"); ok {
+		t.Error("did not expect a copy in the source namespace when overridden")
+	}
+}
+
+func TestReconcile_CrossClusterNamespaceOverrideChange(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke:shared", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+	if _, ok := remoteCopy(t, spoke, "shared", "cfg"); !ok {
+		t.Fatal("precondition: copy in 'shared'")
+	}
+
+	// Change the destination namespace; the old copy must be pruned.
+	src, _ := getCM(t, s, "default", "cfg")
+	src.Annotations[testKeys.TargetClustersAnnotation] = "spoke:prod"
+	if err := s.Update(context.Background(), src); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	if _, ok := remoteCopy(t, spoke, "prod", "cfg"); !ok {
+		t.Error("expected the copy to move to the new namespace 'prod'")
+	}
+	if _, ok := remoteCopy(t, spoke, "shared", "cfg"); ok {
+		t.Error("stale copy in 'shared' should have been pruned")
+	}
+}
+
+func TestReconcile_CrossClusterSteadyStateSkipsPrune(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke:shared", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	// A stray managed copy of this source in another namespace on the spoke.
+	stray := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      "cfg",
+		Namespace: "leftover",
+		Labels: map[string]string{
+			testKeys.ManagedByLabel:  ManagedByValue,
+			testKeys.OriginNSLabel:   "default",
+			testKeys.OriginNameLabel: "cfg",
+		},
+	}}
+	if err := spoke.Create(context.Background(), stray); err != nil {
+		t.Fatalf("seed stray: %v", err)
+	}
+
+	// Steady-state reconcile (no create): the stale-namespace prune is skipped,
+	// so the stray survives — it costs no extra List on the hot path.
+	reconcileConfigMap(t, s, "default", "cfg")
+	if _, ok := remoteCopy(t, spoke, "leftover", "cfg"); !ok {
+		t.Error("steady-state reconcile should not run the stale-namespace prune")
+	}
+}
+
 func TestReconcile_CrossClusterUnknownClusterEvent(t *testing.T) {
 	s, rec := newTestSyncer(
 		ns("default", nil),

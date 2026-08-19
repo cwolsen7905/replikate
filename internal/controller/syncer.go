@@ -346,7 +346,7 @@ func (s *Syncer) mapCredentialToSources(ctx context.Context, obj client.Object, 
 	}
 	var reqs []reconcile.Request
 	for _, o := range listItems(list) {
-		if NamespaceSet(o.GetAnnotations()[s.Keys.TargetClustersAnnotation])[clusterID] {
+		if _, ok := parseTargetClusters(o.GetAnnotations()[s.Keys.TargetClustersAnnotation])[clusterID]; ok {
 			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: o.GetNamespace(),
 				Name:      o.GetName(),
