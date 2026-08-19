@@ -2,11 +2,31 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// parseTargetClusters parses the target-clusters annotation into a map of spoke
+// cluster id to the destination namespace on that spoke. Each comma-separated
+// entry is "cluster" (copy into the source's own namespace) or
+// "cluster:namespace" (copy into that namespace). Blank entries are ignored; a
+// nil result means no targets.
+func parseTargetClusters(csv string) map[string]string {
+	out := map[string]string{}
+	for _, part := range strings.Split(csv, ",") {
+		id, ns, _ := strings.Cut(strings.TrimSpace(part), ":")
+		if id = strings.TrimSpace(id); id != "" {
+			out[id] = strings.TrimSpace(ns)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
 // reconcileRemote replicates src into the spoke clusters named by its
 // target-clusters annotation — one copy in src's own namespace per cluster
@@ -18,7 +38,7 @@ import (
 // next natural reconcile.
 func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed bool) {
 	l := log.FromContext(ctx)
-	targets := NamespaceSet(src.GetAnnotations()[s.Keys.TargetClustersAnnotation])
+	targets := parseTargetClusters(src.GetAnnotations()[s.Keys.TargetClustersAnnotation])
 
 	// Warn about targeted clusters that aren't registered, so a typo or a
 	// missing credential is visible rather than silent. Not treated as a failure:
@@ -37,24 +57,38 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 		if !ok {
 			continue
 		}
-		if targets[id] {
-			act, err := s.upsertCopy(ctx, cl, src, src.GetNamespace(), s.HubClusterUID)
-			if err != nil {
-				l.Error(err, "cross-cluster copy failed", "cluster", id)
+		destNS, targeted := targets[id]
+		if !targeted {
+			if n, err := s.deleteCopies(ctx, cl, src, nil, s.HubClusterUID); err != nil {
+				l.Error(err, "cross-cluster cleanup failed", "cluster", id)
 				s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
-					"Replicating to cluster %q failed: %v", id, err)
+					"Removing copies from cluster %q failed: %v", id, err)
 				failed = true
-				continue
+			} else if n > 0 {
+				remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
 			}
-			if act != actionNone {
-				remoteCopyOperationsTotal.WithLabelValues(id, operationFor(act)).Inc()
-				s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
-					"Replicated to cluster %q", id)
-			}
-		} else if n, err := s.deleteCopies(ctx, cl, src, nil, s.HubClusterUID); err != nil {
-			l.Error(err, "cross-cluster cleanup failed", "cluster", id)
+			continue
+		}
+		if destNS == "" {
+			destNS = src.GetNamespace()
+		}
+		act, err := s.upsertCopy(ctx, cl, src, destNS, s.HubClusterUID)
+		if err != nil {
+			l.Error(err, "cross-cluster copy failed", "cluster", id, "namespace", destNS)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
-				"Removing copies from cluster %q failed: %v", id, err)
+				"Replicating to cluster %q failed: %v", id, err)
+			failed = true
+			continue
+		}
+		if act != actionNone {
+			remoteCopyOperationsTotal.WithLabelValues(id, operationFor(act)).Inc()
+			s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
+				"Replicated to cluster %q namespace %q", id, destNS)
+		}
+		// Prune copies left in other namespaces on this spoke — e.g. after the
+		// destination namespace override changed.
+		if n, err := s.deleteCopies(ctx, cl, src, map[string]bool{destNS: true}, s.HubClusterUID); err != nil {
+			l.Error(err, "cross-cluster stale-namespace cleanup failed", "cluster", id)
 			failed = true
 		} else if n > 0 {
 			remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))

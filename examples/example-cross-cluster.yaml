@@ -9,6 +9,9 @@
 #
 # target-clusters is additive: the local sync above happens regardless. The
 # cluster ids are the names of the credential Secrets registered on the hub.
+# Each entry is "cluster" (copy into the source's namespace on that spoke) or
+# "cluster:namespace" (copy into that namespace instead) — here spoke-b's copy
+# lands in "shared".
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -16,6 +19,6 @@ metadata:
   namespace: default
   annotations:
     replikate.brainchurts.com/sync: "team=web"
-    replikate.brainchurts.com/target-clusters: "spoke-a,spoke-b"
+    replikate.brainchurts.com/target-clusters: "spoke-a,spoke-b:shared"
 data:
   LOG_LEVEL: "info"
