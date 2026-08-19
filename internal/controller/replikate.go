@@ -49,6 +49,10 @@ type Keys struct {
 	// OriginNSLabel / OriginNameLabel record the source's namespace and name.
 	OriginNSLabel   string
 	OriginNameLabel string
+	// OriginClusterLabel records the hub cluster a copy came from (the hub's
+	// kube-system UID). Stamped only on cross-cluster copies, it lets two hubs
+	// target the same spoke without pruning or clobbering each other's copies.
+	OriginClusterLabel string
 }
 
 // NewKeys derives the annotation/label keys from a domain prefix.
@@ -61,6 +65,7 @@ func NewKeys(domain string) Keys {
 		ManagedByLabel:           domain + "/managed-by",
 		OriginNSLabel:            domain + "/origin-namespace",
 		OriginNameLabel:          domain + "/origin-name",
+		OriginClusterLabel:       domain + "/origin-cluster",
 	}
 }
 
@@ -75,22 +80,33 @@ func (k Keys) isManagedCopy(obj client.Object) bool {
 	return obj.GetLabels()[k.ManagedByLabel] == ManagedByValue
 }
 
-// ownsCopy reports whether the managed copy's origin labels point back at src,
-// i.e. src is the source this copy belongs to. Used to keep two same-named
-// sources in different namespaces from overwriting each other's copies.
-func (k Keys) ownsCopy(copy, src client.Object) bool {
+// ownsCopy reports whether the managed copy belongs to src: its origin labels
+// point back at src, and — for cross-cluster copies (originCluster != "") — it
+// came from this hub. Keeps same-named sources, and different hubs targeting one
+// spoke, from overwriting each other's copies.
+func (k Keys) ownsCopy(copy, src client.Object, originCluster string) bool {
 	ls := copy.GetLabels()
-	return ls[k.OriginNSLabel] == src.GetNamespace() && ls[k.OriginNameLabel] == src.GetName()
+	if ls[k.OriginNSLabel] != src.GetNamespace() || ls[k.OriginNameLabel] != src.GetName() {
+		return false
+	}
+	if originCluster != "" && ls[k.OriginClusterLabel] != originCluster {
+		return false
+	}
+	return true
 }
 
 // applyCopyMeta mirrors the source's labels and annotations onto a copy (minus
 // Replikate's own keys) and stamps the managed-copy labels used for lookups.
-func (k Keys) applyCopyMeta(src, dst client.Object) {
+// A non-empty originCluster stamps the origin-cluster label (cross-cluster copies).
+func (k Keys) applyCopyMeta(src, dst client.Object, originCluster string) {
 	out := map[string]string{}
 	maps.Copy(out, src.GetLabels())
 	out[k.ManagedByLabel] = ManagedByValue
 	out[k.OriginNSLabel] = src.GetNamespace()
 	out[k.OriginNameLabel] = src.GetName()
+	if originCluster != "" {
+		out[k.OriginClusterLabel] = originCluster
+	}
 	dst.SetLabels(out)
 
 	ann := map[string]string{}

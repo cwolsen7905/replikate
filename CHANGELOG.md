@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Cross-cluster **multi-hub coexistence**: cross-cluster copies now carry an
+  `replikate.brainchurts.com/origin-cluster` label set to the hub's cluster UID.
+  Remote pruning and the conflict guard are scoped to it, so two hubs replicating
+  into the same spoke no longer delete or overwrite each other's copies — the
+  first writer keeps its copy and the second gets a `Conflict` event. Local
+  copies are unchanged (the label is stamped only on cross-cluster copies).
+
 ### Changed
 
 - The cross-cluster self-cluster guard now identifies the hub by its

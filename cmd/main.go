@@ -76,8 +76,13 @@ func main() {
 	}
 
 	// The cluster registry is shared by the Syncer (fan-out) and the credential
-	// reconciler (population); nil when cross-cluster is disabled.
-	var registry *controller.ClusterRegistry
+	// reconciler (population); nil when cross-cluster is disabled. hubUID is this
+	// hub's own cluster identity, used both to reject self-referential
+	// credentials and to stamp cross-cluster copies for multi-hub coexistence.
+	var (
+		registry *controller.ClusterRegistry
+		hubUID   string
+	)
 	if enableCrossCluster {
 		if credentialNamespace == "" {
 			setupLog.Error(nil, "cross-cluster enabled but no credential namespace; set --cluster-credential-namespace or $POD_NAMESPACE")
@@ -86,6 +91,18 @@ func main() {
 		registry = controller.NewClusterRegistry(func(cfg *rest.Config, _ string) (client.Client, error) {
 			return client.New(cfg, client.Options{Scheme: scheme})
 		})
+		// Resolve the hub's cluster identity, retrying so a transient API blip at
+		// startup doesn't permanently disable the self-cluster guard.
+		for attempt := 1; attempt <= 5; attempt++ {
+			var uerr error
+			if hubUID, uerr = controller.ClusterUIDFromConfig(mgr.GetConfig(), scheme); uerr == nil {
+				break
+			} else if attempt == 5 {
+				setupLog.Error(uerr, "unable to read hub cluster identity after retries; SELF-CLUSTER GUARD DISABLED")
+			} else {
+				time.Sleep(2 * time.Second)
+			}
+		}
 	}
 
 	syncer := &controller.Syncer{
@@ -94,6 +111,7 @@ func main() {
 		Recorder:          mgr.GetEventRecorderFor("replikate"),
 		ExcludeNamespaces: controller.NamespaceSet(excludeNamespaces),
 		Registry:          registry,
+		HubClusterUID:     hubUID,
 	}
 	setupLog.Info("using annotation domain", "domain", annotationDomain)
 	setupLog.Info("excluding namespaces", "namespaces", excludeNamespaces)
@@ -114,21 +132,6 @@ func main() {
 	}
 
 	if enableCrossCluster {
-		// Resolve the hub's own cluster identity so the credential reconciler can
-		// reject a spoke credential that resolves back to the hub. Retry a few
-		// times so a transient API blip at startup doesn't permanently disable a
-		// data-loss guard for the whole process.
-		var hubUID string
-		for attempt := 1; attempt <= 5; attempt++ {
-			var uerr error
-			if hubUID, uerr = controller.ClusterUIDFromConfig(mgr.GetConfig(), scheme); uerr == nil {
-				break
-			} else if attempt == 5 {
-				setupLog.Error(uerr, "unable to read hub cluster identity after retries; SELF-CLUSTER GUARD DISABLED")
-			} else {
-				time.Sleep(2 * time.Second)
-			}
-		}
 		if err := (&controller.ClusterCredentialReconciler{
 			Client:        mgr.GetClient(),
 			Registry:      registry,

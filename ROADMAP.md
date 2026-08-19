@@ -86,9 +86,12 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
     - ✅ **Robust self-cluster identity** — the self-cluster guard now compares
       the spoke's `kube-system` UID against the hub's, immune to the same
       cluster being reached via a different URL (the old API-host check).
-    - 🔭 **Pass 3:** `origin-cluster` label (multi-hub coexistence), a
-      credential→source watch so a new spoke fans out promptly instead of on
-      requeue, and an optional per-target namespace override.
+    - ✅ **Multi-hub coexistence** — cross-cluster copies are stamped with an
+      `origin-cluster` label (the hub's cluster UID); pruning and the conflict
+      guard are scoped to it, so two hubs can target one spoke without deleting
+      or clobbering each other's copies.
+    - 🔭 **Pass 3:** a credential→source watch so a new spoke fans out promptly
+      instead of on requeue, and an optional per-target namespace override.
   - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke
     namespace + managed-copy watches (opt-in native fan-out).
   - 🔭 **Phase 4 — webhook + metrics + packaging.**

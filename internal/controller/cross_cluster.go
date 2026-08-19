@@ -40,7 +40,7 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 			continue
 		}
 		if targets[id] {
-			act, err := s.upsertCopy(ctx, cl, src, src.GetNamespace())
+			act, err := s.upsertCopy(ctx, cl, src, src.GetNamespace(), s.HubClusterUID)
 			if err != nil {
 				l.Error(err, "cross-cluster copy failed", "cluster", id)
 				s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
@@ -53,7 +53,7 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 				s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
 					"Replicated to cluster %q", id)
 			}
-		} else if n, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
+		} else if n, err := s.deleteCopies(ctx, cl, src, nil, s.HubClusterUID); err != nil {
 			l.Error(err, "cross-cluster cleanup failed", "cluster", id)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 				"Removing copies from cluster %q failed: %v", id, err)
@@ -77,7 +77,7 @@ func (s *Syncer) deleteRemoteCopies(ctx context.Context, src client.Object) erro
 		if !ok {
 			continue
 		}
-		if n, err := s.deleteCopies(ctx, cl, src, nil); err != nil {
+		if n, err := s.deleteCopies(ctx, cl, src, nil, s.HubClusterUID); err != nil {
 			l.Error(err, "cross-cluster cleanup on delete failed", "cluster", id)
 			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
 				"Removing copies from cluster %q on delete failed: %v", id, err)

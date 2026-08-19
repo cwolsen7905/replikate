@@ -156,6 +156,71 @@ func TestReconcile_CrossClusterSkippedWithoutAnnotation(t *testing.T) {
 	}
 }
 
+func TestReconcile_CrossClusterStampsOriginCluster(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(
+		ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke-a", map[string]string{"k": "v"}),
+	)
+	s.Registry = registryWith(map[string]client.Client{"spoke-a": spoke})
+	s.HubClusterUID = "hub-a"
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	cm, ok := remoteCopy(t, spoke, "default", "cfg")
+	if !ok {
+		t.Fatal("expected a remote copy")
+	}
+	if cm.Labels[testKeys.OriginClusterLabel] != "hub-a" {
+		t.Errorf("remote copy missing origin-cluster label: %v", cm.Labels)
+	}
+}
+
+// TestReconcile_CrossClusterMultiHubCoexistence: a second hub targeting the same
+// spoke neither clobbers nor prunes the first hub's copy.
+func TestReconcile_CrossClusterMultiHubCoexistence(t *testing.T) {
+	spoke := newSpoke() // one spoke, shared by both hubs
+
+	// Hub A writes its copy.
+	a, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke", map[string]string{"who": "A"}))
+	a.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	a.HubClusterUID = "hub-a"
+	reconcileConfigMap(t, a, "default", "cfg")
+	if cm, _ := remoteCopy(t, spoke, "default", "cfg"); cm.Data["who"] != "A" {
+		t.Fatalf("precondition: spoke copy should be A's, got %v", cm.Data)
+	}
+
+	// Hub B has a same-named source also targeting the spoke.
+	b, brec := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke", map[string]string{"who": "B"}))
+	b.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	b.HubClusterUID = "hub-b"
+	reconcileConfigMap(t, b, "default", "cfg")
+
+	// B must not have clobbered A's copy, and should have raised a Conflict.
+	cm, _ := remoteCopy(t, spoke, "default", "cfg")
+	if cm.Data["who"] != "A" {
+		t.Errorf("hub B clobbered hub A's copy: %v", cm.Data)
+	}
+	if cm.Labels[testKeys.OriginClusterLabel] != "hub-a" {
+		t.Errorf("copy ownership flipped to hub B: %v", cm.Labels)
+	}
+	if !hasEvent(brec, "Conflict") {
+		t.Error("expected a Conflict event on hub B")
+	}
+
+	// B de-lists the spoke; its prune must not delete A's copy.
+	src, _ := getCM(t, b, "default", "cfg")
+	src.Annotations[testKeys.TargetClustersAnnotation] = ""
+	if err := b.Update(context.Background(), src); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	reconcileConfigMap(t, b, "default", "cfg")
+	if _, ok := remoteCopy(t, spoke, "default", "cfg"); !ok {
+		t.Error("hub B's prune deleted hub A's copy")
+	}
+}
+
 func TestReconcile_CrossClusterUnknownClusterEvent(t *testing.T) {
 	s, rec := newTestSyncer(
 		ns("default", nil),
