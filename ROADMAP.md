@@ -98,8 +98,14 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
       `cluster:namespace` to place that spoke's copy in a chosen namespace
       instead of the source's; changing it prunes the copy from the old
       namespace.
-  - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke
-    namespace + managed-copy watches (opt-in native fan-out).
+  - 🚧 **Phase 3 — native fan-out + remote drift correction** — a cache per
+    spoke enables selector fan-out into matching namespaces (opt-in via a `:*`
+    target-clusters token, reusing the `sync` selector) and self-healing of
+    remote copies, superseding the v1.2 resync stand-in. See the design doc —
+    [`docs/design/cross-cluster-phase3-native-fanout.md`](docs/design/cross-cluster-phase3-native-fanout.md) — for the
+    per-spoke informer lifecycle and the three build slices (cache
+    infrastructure → remote drift → selector fan-out). The heaviest remaining
+    cross-cluster lift.
   - 🔭 **Phase 4 — webhook + metrics + packaging.**
 - 💡 Replicate additional resource kinds beyond ConfigMaps and Secrets.
 
