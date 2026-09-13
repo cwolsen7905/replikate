@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Planned: dual annotation-domain support** (design in
+  `docs/design/dual-annotation-domain.md`, branch `feat/dual-annotation-domain`).
+  The default key prefix moves to `replikate.ubixsys.com` while
+  `replikate.brainchurts.com` stays honored (reads/matching), so the migration is
+  **non-breaking**; new/updated copies self-migrate to the new domain, and the
+  legacy prefix is dropped in a later major. Code + tests to follow — not yet wired.
+
 - Cross-cluster **per-target namespace override**: an entry in the
   `target-clusters` annotation may be `cluster:namespace` to place that spoke's
   copy in a chosen namespace instead of the source's own (a bare `cluster` keeps
