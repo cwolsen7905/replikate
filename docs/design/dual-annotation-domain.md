@@ -44,9 +44,26 @@ drops the legacy list.
 ## Config
 
 - `--annotation-domain` — primary (default becomes `replikate.ubixsys.com`).
-- `--legacy-annotation-domains` — comma-separated (default
-  `replikate.brainchurts.com`). Set empty to disable legacy honoring (the eventual
-  end state).
+- `--previous-annotation-domain` / chart `previousAnnotationDomain` — the prior
+  domain still honored for reads/matching/adoption (default
+  `replikate.brainchurts.com`). Set empty to disable — the eventual end state.
+
+## Data-safety requirements (from the cluster side)
+
+The live cluster has **93 managed copies** (incl. production TLS secrets behind
+ingresses) and 13 sources under the previous domain. A flag flip without adoption
+would make all 93 fail `ownsCopy`, hit the "refusing to overwrite unmanaged" path,
+and stop being updated — **including on cert renewal** — expiring silently weeks
+later (exactly the incident that started the cluster's audit). So adoption is
+mandatory, and:
+
+- **In-place relabel only — never delete-then-recreate.** These are live secrets;
+  a copy is adopted and its metadata rewritten to the primary domain on the next
+  reconcile, never recreated.
+- **Emit an `Adopted` event + log line per copy**, so 93 copies converging is
+  observable, not inferred.
+- `isAdoptable()` today recognizes only AppsCode config-syncer copies; previous-
+  Replikate-domain adoption is a distinct path.
 
 `CredentialLabel` (`<domain>/cluster-credential`, currently hardcoded) must be
 derived from the `KeySet` too and matched under primary-or-legacy.
