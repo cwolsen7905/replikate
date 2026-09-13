@@ -3,3 +3,7 @@
 *.out
 __debug_bin*
 .DS_Store
+
+# Local per-workflow agent files — kept local, not part of the public repo
+/CLAUDE.md
+/AGENTS-COORD.md
