@@ -22,7 +22,12 @@ Replikate keeps copies in lockstep with the source:
 
 Each copy is stamped with `replikate.ubixsys.com/managed-by=replikate` plus origin labels. Replikate will **never overwrite an object it does not manage** — with one deliberate exception: copies left behind by AppsCode's config-syncer (see [Migrating from config-syncer](#migrating-from-config-syncer)). Every action it takes (create / update / adopt / delete a copy) is logged, and it only writes when something actually changed, so the controller logs stay meaningful.
 
-> **Domain migration (1.3.0).** The default key prefix moved from `replikate.brainchurts.com` to `replikate.ubixsys.com`. The previous prefix is still honored for reads, matching, and adoption (`--previous-annotation-domain` / chart `previousAnnotationDomain`, default `replikate.brainchurts.com`), and each reconcile self-migrates a copy to the new prefix in place — so upgrading is **non-breaking**, with no coordinated re-annotation. Watch the `replikate_copies_by_domain` gauge fall to 0 for the old prefix, then set `previousAnnotationDomain: ""` to finish the migration. Details: [dual annotation-domain](docs/design/dual-annotation-domain.md).
+> **Domain migration (1.3.0).** The default key prefix moved from `replikate.brainchurts.com` to `replikate.ubixsys.com`. The previous prefix stays honored for reads, matching, and adoption (`--previous-annotation-domain` / chart `previousAnnotationDomain`, default `replikate.brainchurts.com`), so upgrading is **non-breaking**. Migration has two halves:
+>
+> - **Copies migrate automatically** — each reconcile re-stamps a managed copy to the new prefix in place (a restart forces a full reconcile immediately). Watch `replikate_copies_by_domain` for the old prefix fall to 0.
+> - **Sources do not** — the controller never rewrites a source's own annotation, so you re-annotate your sources to the new prefix yourself (e.g. change the key wherever it's defined, such as a cert-manager `secretTemplate`).
+>
+> Only once **both** the copies *and* every source are off the old prefix is it safe to set `previousAnnotationDomain: ""`. Dropping it while any source still carries the old prefix makes the controller stop recognizing that source and delete its copies. Details: [dual annotation-domain](docs/design/dual-annotation-domain.md).
 
 ## Quick start
 
