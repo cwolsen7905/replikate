@@ -1,7 +1,7 @@
 # replikate
 
-[![CI](https://github.com/cwolsen7905/replikate/actions/workflows/ci.yaml/badge.svg)](https://github.com/cwolsen7905/replikate/actions/workflows/ci.yaml)
-[![Release](https://img.shields.io/github/v/release/cwolsen7905/replikate?sort=semver)](https://github.com/cwolsen7905/replikate/releases)
+[![CI](https://github.com/ubixsys/replikate/actions/workflows/ci.yaml/badge.svg)](https://github.com/ubixsys/replikate/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/ubixsys/replikate?sort=semver)](https://github.com/ubixsys/replikate/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cwolsen7905/replikate)](https://goreportcard.com/report/github.com/cwolsen7905/replikate)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
@@ -26,14 +26,14 @@ Each copy is stamped with `replikate.ubixsys.com/managed-by=replikate` plus orig
 
 ## Quick start
 
-Images are published multi-arch (`linux/amd64` + `linux/arm64`) to `ghcr.io/cwolsen7905/replikate` by CI on every push to `main`.
+Images are published multi-arch (`linux/amd64` + `linux/arm64`) to `ghcr.io/ubixsys/replikate` by CI on every push to `main` and on release tags. (A personal mirror at `ghcr.io/cwolsen7905/replikate` also builds; consumers should use the org path.)
 
 ```sh
 # 1. Install into the cluster (image is built by CI; or `make docker-build docker-push`):
-make deploy IMAGE_REPO=ghcr.io/cwolsen7905/replikate IMAGE_TAG=v0.1.0
+make deploy IMAGE_REPO=ghcr.io/ubixsys/replikate IMAGE_TAG=v1.3.0
 #   (equivalently: helm upgrade --install replikate charts/replikate \
 #      --namespace replikate --create-namespace \
-#      --set image.tag=v0.1.0)
+#      --set image.tag=v1.3.0)
 
 # 2. Try it:
 kubectl apply -f examples/example-configmap.yaml
