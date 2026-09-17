@@ -11,8 +11,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// DefaultDomain is the annotation/label key prefix used when none is configured.
-const DefaultDomain = "replikate.brainchurts.com"
+// DefaultDomain is the primary annotation/label key prefix used when none is
+// configured. It moved from replikate.brainchurts.com to replikate.ubixsys.com
+// when the project moved under the ubixsys org; DefaultPreviousDomain keeps the
+// old prefix honored so the change is non-breaking (see KeySet and
+// docs/design/dual-annotation-domain.md).
+const DefaultDomain = "replikate.ubixsys.com"
+
+// DefaultPreviousDomain is the prior primary prefix, honored by default for
+// reads/matching/adoption so copies and sources annotated under it keep working
+// and self-migrate to DefaultDomain. Set --previous-annotation-domain to ""
+// (the eventual end state) to stop honoring it.
+const DefaultPreviousDomain = "replikate.brainchurts.com"
 
 const (
 	// ManagedByValue is the value of the managed-by label on every copy.
@@ -53,6 +63,9 @@ type Keys struct {
 	// kube-system UID). Stamped only on cross-cluster copies, it lets two hubs
 	// target the same spoke without pruning or clobbering each other's copies.
 	OriginClusterLabel string
+	// CredentialLabel marks a Secret in the controller's namespace as a spoke
+	// cluster credential (cross-cluster).
+	CredentialLabel string
 }
 
 // NewKeys derives the annotation/label keys from a domain prefix.
@@ -66,6 +79,7 @@ func NewKeys(domain string) Keys {
 		OriginNSLabel:            domain + "/origin-namespace",
 		OriginNameLabel:          domain + "/origin-name",
 		OriginClusterLabel:       domain + "/origin-cluster",
+		CredentialLabel:          domain + "/cluster-credential",
 	}
 }
 

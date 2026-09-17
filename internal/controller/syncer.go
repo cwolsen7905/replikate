@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -21,7 +20,7 @@ import (
 // Secret controllers.
 type Syncer struct {
 	client.Client
-	Keys     Keys
+	Keys     KeySet
 	Recorder record.EventRecorder
 	// ExcludeNamespaces is the set of namespaces that never receive copies,
 	// regardless of a source's selector. It protects system namespaces by
@@ -85,23 +84,24 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 
 	// Not (or no longer) a source: tear down any copies we still own.
 	if !s.Keys.isSource(obj) {
-		if controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
+		if s.Keys.hasFinalizer(obj) {
 			return reconcile.Result{}, s.cleanupAndRemoveFinalizer(ctx, obj)
 		}
 		return reconcile.Result{}, nil
 	}
 
-	// Ensure our finalizer is present before we create any copies.
-	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
-		controllerutil.AddFinalizer(obj, s.Keys.Finalizer)
+	// Ensure the primary finalizer is present (and any legacy finalizer removed)
+	// before we create any copies.
+	if s.Keys.reconcileFinalizer(obj) {
 		if err := s.Update(ctx, obj); err != nil {
 			return reconcile.Result{}, client.IgnoreNotFound(err)
 		}
 		return reconcile.Result{}, nil // the update re-enqueues this object
 	}
 
-	// Parse the namespace selector (empty value => every namespace).
-	selValue := obj.GetAnnotations()[s.Keys.SyncAnnotation]
+	// Parse the namespace selector (empty value => every namespace), reading it
+	// from whichever domain (primary or legacy) the source is annotated under.
+	_, selValue, _ := s.Keys.syncValue(obj.GetAnnotations())
 	selector, err := labels.Parse(selValue)
 	if err != nil {
 		l.Error(err, "invalid namespace selector; skipping", "selector", selValue)
@@ -162,7 +162,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 	// the annotation to "" rather than removing it — an absent annotation means
 	// "not involved in cross-cluster", so nothing is pruned.
 	if s.Registry != nil {
-		if _, ok := obj.GetAnnotations()[s.Keys.TargetClustersAnnotation]; ok {
+		if _, ok := s.Keys.targetClustersValue(obj.GetAnnotations()); ok {
 			if s.reconcileRemote(ctx, obj) {
 				// A spoke failed or was unregistered; retry sooner than the next
 				// natural reconcile without wedging on a permanently-down spoke.
@@ -176,7 +176,7 @@ func (s *Syncer) reconcileSource(ctx context.Context, obj client.Object) (reconc
 // cleanupAndRemoveFinalizer deletes every copy owned by obj and then removes the
 // Replikate finalizer, allowing the source's own deletion to proceed.
 func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Object) error {
-	if !controllerutil.ContainsFinalizer(obj, s.Keys.Finalizer) {
+	if !s.Keys.hasFinalizer(obj) {
 		return nil
 	}
 	if n, err := s.deleteCopies(ctx, s.Client, obj, nil, ""); err != nil {
@@ -190,7 +190,7 @@ func (s *Syncer) cleanupAndRemoveFinalizer(ctx context.Context, obj client.Objec
 			return err
 		}
 	}
-	controllerutil.RemoveFinalizer(obj, s.Keys.Finalizer)
+	s.Keys.removeAllFinalizers(obj)
 	return client.IgnoreNotFound(s.Update(ctx, obj))
 }
 
@@ -232,17 +232,25 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 	// each other's copy on every reconcile. First writer wins; the loser gets a
 	// Conflict event instead of a silent clobber war.
 	if managed && !s.Keys.ownsCopy(existing, src, originCluster) {
-		owner := existing.GetLabels()
-		ownerCluster := owner[s.Keys.OriginClusterLabel]
+		ownerNS, ownerName, ownerCluster := s.Keys.ownerRef(existing)
 		if ownerCluster == "" {
 			ownerCluster = "local"
 		}
 		l.Info("refusing to overwrite copy owned by another source", "namespace", ns, "name", src.GetName(),
-			"owner", owner[s.Keys.OriginNSLabel]+"/"+owner[s.Keys.OriginNameLabel], "ownerCluster", ownerCluster)
+			"owner", ownerNS+"/"+ownerName, "ownerCluster", ownerCluster)
 		s.Recorder.Eventf(src, corev1.EventTypeWarning, "Conflict",
 			"Refusing to overwrite %s/%s owned by source %s/%s on cluster %s",
-			ns, src.GetName(), owner[s.Keys.OriginNSLabel], owner[s.Keys.OriginNameLabel], ownerCluster)
+			ns, src.GetName(), ownerNS, ownerName, ownerCluster)
 		return actionNone, nil
+	}
+
+	// A managed copy stamped under a legacy domain is one we own but must migrate
+	// to the primary domain: applyCopyMeta rewrites its stamps, and we surface an
+	// Adopted event so the migration of (potentially many) live copies is
+	// observable rather than inferred.
+	legacyDomain := ""
+	if managed {
+		legacyDomain = s.Keys.legacyDomainOf(existing)
 	}
 
 	before := existing.DeepCopyObject().(client.Object)
@@ -251,18 +259,29 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 	if managed && contentEqual(before, existing) {
 		return actionNone, nil // already in the desired state; skip the write
 	}
-	if managed {
+	switch {
+	case legacyDomain != "":
+		l.Info("adopting copy from previous annotation domain", "namespace", ns, "name", src.GetName(), "previousDomain", legacyDomain)
+	case managed:
 		l.Info("updating copy", "namespace", ns, "name", src.GetName())
-	} else {
+	default:
 		l.Info("adopting copy", "namespace", ns, "name", src.GetName())
 	}
 	if err := cl.Update(ctx, existing); err != nil {
 		return actionNone, err
 	}
-	if managed {
+	switch {
+	case legacyDomain != "":
+		s.Recorder.Eventf(src, corev1.EventTypeNormal, "Adopted",
+			"Migrated copy %s/%s from previous annotation domain %q to %q",
+			ns, src.GetName(), legacyDomain, s.Keys.Primary.Domain)
+		copiesMigratedTotal.WithLabelValues(legacyDomain).Inc()
 		return actionUpdated, nil
+	case managed:
+		return actionUpdated, nil
+	default:
+		return actionAdopted, nil
 	}
-	return actionAdopted, nil
 }
 
 // deleteCopies removes managed copies of src and reports how many it deleted.
@@ -270,33 +289,39 @@ func (s *Syncer) upsertCopy(ctx context.Context, cl client.Client, src client.Ob
 // when keep is nil, all copies go.
 func (s *Syncer) deleteCopies(ctx context.Context, cl client.Client, src client.Object, keep map[string]bool, originCluster string) (int, error) {
 	l := log.FromContext(ctx)
-	list := emptyListLike(src)
-	if err := cl.List(ctx, list, client.MatchingLabels{
-		s.Keys.ManagedByLabel:  ManagedByValue,
-		s.Keys.OriginNSLabel:   src.GetNamespace(),
-		s.Keys.OriginNameLabel: src.GetName(),
-	}); err != nil {
-		return 0, err
-	}
+	// List under the primary and every legacy domain, so copies stamped under an
+	// old prefix that have not yet migrated are still found and pruned. Dedupe by
+	// namespace in case a copy carries stamps under more than one domain.
+	seen := map[string]bool{}
 	n := 0
-	for _, c := range listItems(list) {
-		if keep != nil && keep[c.GetNamespace()] {
-			continue
-		}
-		// On a shared spoke, prune only copies this hub owns — its own
-		// (matching origin-cluster) plus legacy unlabeled ones — never a copy
-		// stamped by another hub. (Server-side labels can't match "== X or
-		// absent", so this is filtered here.)
-		if originCluster != "" {
-			if oc := c.GetLabels()[s.Keys.OriginClusterLabel]; oc != "" && oc != originCluster {
-				continue
-			}
-		}
-		l.Info("deleting copy", "namespace", c.GetNamespace(), "name", c.GetName())
-		if err := cl.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
+	for _, sel := range s.Keys.managedListOpts(src) {
+		list := emptyListLike(src)
+		if err := cl.List(ctx, list, sel); err != nil {
 			return n, err
 		}
-		n++
+		for _, c := range listItems(list) {
+			if seen[c.GetNamespace()] {
+				continue
+			}
+			seen[c.GetNamespace()] = true
+			if keep != nil && keep[c.GetNamespace()] {
+				continue
+			}
+			// On a shared spoke, prune only copies this hub owns — its own
+			// (matching origin-cluster) plus legacy unlabeled ones — never a copy
+			// stamped by another hub. (Server-side labels can't match "== X or
+			// absent", so this is filtered here.)
+			if originCluster != "" {
+				if oc := s.Keys.originCluster(c); oc != "" && oc != originCluster {
+					continue
+				}
+			}
+			l.Info("deleting copy", "namespace", c.GetNamespace(), "name", c.GetName())
+			if err := cl.Delete(ctx, c); err != nil && !apierrors.IsNotFound(err) {
+				return n, err
+			}
+			n++
+		}
 	}
 	return n, nil
 }
@@ -346,7 +371,8 @@ func (s *Syncer) mapCredentialToSources(ctx context.Context, obj client.Object, 
 	}
 	var reqs []reconcile.Request
 	for _, o := range listItems(list) {
-		if _, ok := parseTargetClusters(o.GetAnnotations()[s.Keys.TargetClustersAnnotation])[clusterID]; ok {
+		tcValue, _ := s.Keys.targetClustersValue(o.GetAnnotations())
+		if _, ok := parseTargetClusters(tcValue)[clusterID]; ok {
 			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: o.GetNamespace(),
 				Name:      o.GetName(),
@@ -360,12 +386,8 @@ func (s *Syncer) mapCredentialToSources(ctx context.Context, obj client.Object, 
 // source, so that editing or deleting a copy re-drives the source and restores
 // the copy — near-instant drift correction, rather than waiting for a resync.
 func (s *Syncer) mapCopyToSource(_ context.Context, obj client.Object) []reconcile.Request {
-	ls := obj.GetLabels()
-	if ls[s.Keys.ManagedByLabel] != ManagedByValue {
-		return nil
-	}
-	ns, name := ls[s.Keys.OriginNSLabel], ls[s.Keys.OriginNameLabel]
-	if ns == "" || name == "" {
+	ns, name, ok := s.Keys.copyOrigin(obj)
+	if !ok {
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}}
@@ -376,7 +398,7 @@ func (s *Syncer) mapCopyToSource(_ context.Context, obj client.Object) []reconci
 // It deliberately excludes managed copies, which prevents replication loops.
 func (s *Syncer) sourcePredicate() predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(o client.Object) bool {
-		return s.Keys.isSource(o) || controllerutil.ContainsFinalizer(o, s.Keys.Finalizer)
+		return s.Keys.isSource(o) || s.Keys.hasFinalizer(o)
 	})
 }
 

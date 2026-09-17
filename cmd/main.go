@@ -38,6 +38,7 @@ func main() {
 		probeAddr            string
 		enableLeaderElection bool
 		annotationDomain     string
+		previousDomain       string
 		excludeNamespaces    string
 		enableWebhook        bool
 		enableCrossCluster   bool
@@ -48,7 +49,9 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election, ensuring only one active manager.")
 	flag.StringVar(&annotationDomain, "annotation-domain", controller.DefaultDomain,
-		"Annotation/label key prefix Replikate watches for (e.g. \"replikate.brainchurts.com\").")
+		"Primary annotation/label key prefix Replikate writes and watches (e.g. \"replikate.ubixsys.com\").")
+	flag.StringVar(&previousDomain, "previous-annotation-domain", controller.DefaultPreviousDomain,
+		"Prior key prefix still honored for reads/matching/adoption; copies stamped under it are migrated to the primary on the next reconcile. Empty disables it.")
 	flag.StringVar(&excludeNamespaces, "exclude-namespaces",
 		strings.Join(controller.DefaultExcludedNamespaces, ","),
 		"Comma-separated namespaces that never receive copies; empty excludes none.")
@@ -106,15 +109,16 @@ func main() {
 		}
 	}
 
+	keys := controller.NewKeySet(annotationDomain, previousDomain)
 	syncer := &controller.Syncer{
 		Client:            mgr.GetClient(),
-		Keys:              controller.NewKeys(annotationDomain),
+		Keys:              keys,
 		Recorder:          mgr.GetEventRecorderFor("replikate"),
 		ExcludeNamespaces: controller.NamespaceSet(excludeNamespaces),
 		Registry:          registry,
 		HubClusterUID:     hubUID,
 	}
-	setupLog.Info("using annotation domain", "domain", annotationDomain)
+	setupLog.Info("using annotation domain", "primary", annotationDomain, "previous", previousDomain)
 	setupLog.Info("excluding namespaces", "namespaces", excludeNamespaces)
 
 	// Per-kind channels the credential reconciler signals when a spoke registers,
@@ -136,7 +140,7 @@ func main() {
 
 	if enableWebhook {
 		mgr.GetWebhookServer().Register(controller.SelectorWebhookPath,
-			&admission.Webhook{Handler: &controller.SelectorValidator{Keys: controller.NewKeys(annotationDomain)}})
+			&admission.Webhook{Handler: &controller.SelectorValidator{Keys: keys}})
 		setupLog.Info("serving sync-selector validating webhook", "path", controller.SelectorWebhookPath)
 	}
 
@@ -146,6 +150,7 @@ func main() {
 			Registry:      registry,
 			Recorder:      mgr.GetEventRecorderFor("replikate-cluster"),
 			Namespace:     credentialNamespace,
+			Keys:          keys,
 			HubClusterUID: hubUID,
 			Notify:        []chan<- event.GenericEvent{cmReady, secReady},
 		}).SetupWithManager(mgr); err != nil {
@@ -153,6 +158,13 @@ func main() {
 			os.Exit(1)
 		}
 		setupLog.Info("cross-cluster registry enabled", "credentialNamespace", credentialNamespace, "hubClusterUID", hubUID)
+	}
+
+	// Publish the per-domain managed-copy gauge (the completion signal for a
+	// domain migration). Leader-only; reads from the manager cache.
+	if err := mgr.Add(&controller.DomainCounter{Client: mgr.GetClient(), Keys: keys}); err != nil {
+		setupLog.Error(err, "unable to add domain-copy counter")
+		os.Exit(1)
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

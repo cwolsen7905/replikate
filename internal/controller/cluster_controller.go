@@ -32,6 +32,9 @@ type ClusterCredentialReconciler struct {
 	Registry  *ClusterRegistry
 	Recorder  record.EventRecorder
 	Namespace string // the namespace credential Secrets live in
+	// Keys is the annotation/label contract; credential Secrets are matched by
+	// the cluster-credential label under the primary or any legacy domain.
+	Keys KeySet
 	// HubClusterUID is the UID of the hub's own kube-system namespace — a stable
 	// per-cluster identity. A credential that resolves to the same UID is
 	// rejected: replicating into the hub-as-a-spoke would make the controller
@@ -142,7 +145,7 @@ func clusterUID(ctx context.Context, c client.Client) (string, error) {
 // in the configured namespace.
 func (r *ClusterCredentialReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	inNamespace := predicate.NewPredicateFuncs(func(o client.Object) bool {
-		return o.GetNamespace() == r.Namespace && o.GetLabels()[CredentialLabel] != ""
+		return o.GetNamespace() == r.Namespace && r.Keys.hasCredentialLabel(o)
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Secret{}, builder.WithPredicates(inNamespace)).

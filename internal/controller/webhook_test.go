@@ -25,7 +25,7 @@ func admissionReqFor(t *testing.T, cm *corev1.ConfigMap) admission.Request {
 }
 
 func TestSelectorValidator(t *testing.T) {
-	v := &SelectorValidator{Keys: testKeys}
+	v := &SelectorValidator{Keys: testKeySet}
 
 	cases := []struct {
 		name        string
@@ -55,7 +55,7 @@ func TestSelectorValidator(t *testing.T) {
 }
 
 func TestSelectorValidator_RejectsMalformedObject(t *testing.T) {
-	v := &SelectorValidator{Keys: testKeys}
+	v := &SelectorValidator{Keys: testKeySet}
 	req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
 		Object: runtime.RawExtension{Raw: []byte("{not json")},
 	}}

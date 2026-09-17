@@ -38,7 +38,8 @@ func parseTargetClusters(csv string) map[string]string {
 // next natural reconcile.
 func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed bool) {
 	l := log.FromContext(ctx)
-	targets := parseTargetClusters(src.GetAnnotations()[s.Keys.TargetClustersAnnotation])
+	tcValue, _ := s.Keys.targetClustersValue(src.GetAnnotations())
+	targets := parseTargetClusters(tcValue)
 
 	// Warn about targeted clusters that aren't registered, so a typo or a
 	// missing credential is visible rather than silent. Not treated as a failure:

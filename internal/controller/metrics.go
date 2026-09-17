@@ -29,10 +29,27 @@ var (
 		Name: "replikate_remote_copy_operations_total",
 		Help: "Total copy operations performed on spoke clusters, labeled by cluster and operation (created, updated, adopted, deleted).",
 	}, []string{"cluster", "operation"})
+
+	// copiesMigratedTotal counts copies re-stamped from a legacy annotation
+	// domain to the primary one, labeled by the previous domain — a counter of
+	// adoption events during a domain migration.
+	copiesMigratedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "replikate_copies_migrated_total",
+		Help: "Total managed copies migrated from a previous annotation domain to the primary, labeled by the previous domain.",
+	}, []string{"from_domain"})
+
+	// copiesByDomain reports how many managed copies currently carry each
+	// annotation domain's stamp, labeled by domain and kind — the completion
+	// signal for a domain migration (watch a legacy domain fall to 0).
+	copiesByDomain = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "replikate_copies_by_domain",
+		Help: "Managed copies currently stamped under each annotation domain, labeled by domain and kind.",
+	}, []string{"domain", "kind"})
 )
 
 func init() {
-	metrics.Registry.MustRegister(reconcileTotal, copyOperationsTotal, clusterUp, remoteCopyOperationsTotal)
+	metrics.Registry.MustRegister(reconcileTotal, copyOperationsTotal, clusterUp,
+		remoteCopyOperationsTotal, copiesMigratedTotal, copiesByDomain)
 }
 
 // kindOf returns the metric label for obj's kind.
