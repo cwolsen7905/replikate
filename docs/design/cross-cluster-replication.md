@@ -63,7 +63,7 @@ holds credentials.
 Spokes are registered by dropping a **credential Secret** in the controller's
 namespace:
 
-- Labeled `replikate.brainchurts.com/cluster-credential=true` so Replikate
+- Labeled `replikate.ubixsys.com/cluster-credential=true` so Replikate
   discovers it by a label selector (and can watch for add/remove).
 - The Secret's `metadata.name` is the **cluster id** referenced by sources.
 - Data holds a kubeconfig (`kubeconfig` key) or a server URL + CA + token.
@@ -85,8 +85,8 @@ One new **optional** annotation on the source:
 ```yaml
 metadata:
   annotations:
-    replikate.brainchurts.com/sync: "team=web"          # existing: namespace selector
-    replikate.brainchurts.com/target-clusters: "spoke-a,spoke-b"   # new; "*" = all registered
+    replikate.ubixsys.com/sync: "team=web"          # existing: namespace selector
+    replikate.ubixsys.com/target-clusters: "spoke-a,spoke-b"   # new; "*" = all registered
 ```
 
 - **Absent** → today's behavior exactly: replicate within the local (hub)
@@ -103,7 +103,7 @@ Copies gain an **origin-cluster** label alongside the existing origin-namespace 
 origin-name labels:
 
 ```
-replikate.brainchurts.com/origin-cluster: <hub-cluster-id>
+replikate.ubixsys.com/origin-cluster: <hub-cluster-id>
 ```
 
 This is required so cleanup (`deleteCopies`) and the same-name conflict guard
