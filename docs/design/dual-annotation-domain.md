@@ -78,8 +78,23 @@ derived from the `KeySet` too and matched under primary-or-legacy.
 ## Rollout
 
 Non-breaking: the cluster deploys the new image whenever; old annotations keep
-working; operators re-annotate at leisure (or let reconciles migrate copies).
-No coordinated re-annotation required.
+working throughout. Migration then has **two halves**, and both must complete
+before the legacy prefix can be dropped:
+
+1. **Copies** self-migrate — each reconcile re-stamps a managed copy to the
+   primary prefix in place (a controller restart forces a full reconcile at once).
+   Track with `replikate_copies_by_domain{domain=<legacy>}` → 0.
+2. **Sources** do **not** self-migrate — the controller never rewrites a source's
+   own annotation. Operators must re-annotate each source to the primary prefix
+   (change the key wherever it is defined — e.g. a cert-manager `secretTemplate`,
+   a Helm value, or the object itself). Track with a search for `<legacy>/sync`.
+
+**Only once both counts are 0** is it safe to set `previousAnnotationDomain: ""`.
+Dropping it while any source still carries the legacy prefix makes that source
+fail `isSource`, so the controller treats it as no-longer-a-source and deletes its
+copies (finalizer cleanup) — the exact orphaning this design exists to prevent.
+No coordinated *timing* is required (the two halves can happen days apart), but
+the source re-annotation is a deliberate step, not automatic.
 
 ## Status of the work
 
