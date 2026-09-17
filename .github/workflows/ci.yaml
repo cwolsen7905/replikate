@@ -12,6 +12,11 @@ on:
     paths-ignore:
       - '**.md'
       - 'LICENSE'
+  # Manual trigger, so a tagged image can be (re)built on demand — e.g. a release
+  # tag that reached this repo via the GitLab push-mirror, which does not reliably
+  # fire the tag `push` event. Dispatch against the tag ref (gh workflow run CI
+  # -R <owner>/replikate --ref v1.3.0); the semver image tag is derived from it.
+  workflow_dispatch:
 
 permissions:
   contents: read
