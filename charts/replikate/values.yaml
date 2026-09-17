@@ -9,9 +9,17 @@ image:
 # Only needed if the GHCR package is private.
 imagePullSecrets: []
 
-# Annotation/label key prefix Replikate watches. Change this to reuse the
-# controller under your own domain (sources are then annotated <domain>/sync).
-annotationDomain: replikate.brainchurts.com
+# Primary annotation/label key prefix Replikate writes and watches. Change this
+# to reuse the controller under your own domain (sources are then annotated
+# <domain>/sync). New/updated copies are always stamped under this domain.
+annotationDomain: replikate.ubixsys.com
+
+# Prior key prefix still honored for reads/matching/adoption, so a domain move
+# is non-breaking: sources and copies stamped under it keep working and each
+# reconcile self-migrates a copy to annotationDomain. Watch the
+# replikate_copies_by_domain gauge fall to 0 for this domain, then set it to ""
+# to stop honoring the old prefix (the eventual end state).
+previousAnnotationDomain: replikate.brainchurts.com
 
 # Namespaces that never receive copies, regardless of a source's selector.
 # Defaults protect the cluster's system namespaces; set to [] to exclude none.

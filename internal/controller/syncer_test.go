@@ -18,13 +18,25 @@ import (
 
 var testKeys = NewKeys(DefaultDomain)
 
-// newTestSyncer builds a Syncer backed by a fake client seeded with objs.
+// testKeySet is the default single-domain contract used by most tests. Tests
+// that exercise legacy-domain adoption build their own KeySet (see
+// newTestSyncerKeys) with a Legacy entry.
+var testKeySet = KeySet{Primary: testKeys}
+
+// newTestSyncer builds a Syncer backed by a fake client seeded with objs, using
+// the default single-domain KeySet.
 func newTestSyncer(objs ...client.Object) (*Syncer, *record.FakeRecorder) {
+	return newTestSyncerKeys(testKeySet, objs...)
+}
+
+// newTestSyncerKeys builds a Syncer with the given KeySet, so tests can exercise
+// the dual annotation-domain paths.
+func newTestSyncerKeys(keys KeySet, objs ...client.Object) (*Syncer, *record.FakeRecorder) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	rec := record.NewFakeRecorder(100)
 	index := func(o client.Object) []string {
-		if testKeys.isSource(o) {
+		if keys.isSource(o) {
 			return []string{sourceIndexTrue}
 		}
 		return nil
@@ -33,7 +45,7 @@ func newTestSyncer(objs ...client.Object) (*Syncer, *record.FakeRecorder) {
 		WithIndex(&corev1.ConfigMap{}, SourceIndexField, index).
 		WithIndex(&corev1.Secret{}, SourceIndexField, index).
 		WithObjects(objs...).Build()
-	return &Syncer{Client: c, Keys: testKeys, Recorder: rec}, rec
+	return &Syncer{Client: c, Keys: keys, Recorder: rec}, rec
 }
 
 func ns(name string, labels map[string]string) *corev1.Namespace {

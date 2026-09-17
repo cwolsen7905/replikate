@@ -18,7 +18,7 @@ const SelectorWebhookPath = "/validate-sync-selector"
 // turns what the controller would otherwise only log (and skip) at reconcile
 // time into an apply-time error, so the mistake surfaces to whoever applied it.
 type SelectorValidator struct {
-	Keys Keys
+	Keys KeySet
 }
 
 // Handle validates the incoming object's sync-annotation selector. Objects
@@ -35,13 +35,13 @@ func (v *SelectorValidator) Handle(_ context.Context, req admission.Request) adm
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
-	value, ok := obj.Metadata.Annotations[v.Keys.SyncAnnotation]
+	key, value, ok := v.Keys.syncValue(obj.Metadata.Annotations)
 	if !ok {
 		return admission.Allowed("not a Replikate source")
 	}
 	if _, err := labels.Parse(value); err != nil {
 		return admission.Denied(fmt.Sprintf(
-			"invalid %s selector %q: %v", v.Keys.SyncAnnotation, value, err))
+			"invalid %s selector %q: %v", key, value, err))
 	}
 	return admission.Allowed("valid sync selector")
 }

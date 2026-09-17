@@ -1,8 +1,15 @@
 # Design note: dual annotation-domain support (non-breaking prefix migration)
 
-> **Status:** Proposed · 2026-09-13 · branch `feat/dual-annotation-domain`.
-> Motivated by moving the project under the `ubixsys` org and wanting the
-> annotation/label key prefix to follow — **without breaking existing resources.**
+> **Status:** Implemented · 2026-09-16 · shipped in 1.3.0 (branch
+> `feat/dual-annotation-domain`). Motivated by moving the project under the
+> `ubixsys` org and wanting the annotation/label key prefix to follow —
+> **without breaking existing resources.**
+>
+> Implementation: `KeySet` in `internal/controller/keyset.go`; the primary/legacy
+> split is threaded through `syncer.go`, `cross_cluster.go`, `webhook.go`,
+> `registry.go`, `cluster_controller.go`, and `cmd/main.go`. The
+> `replikate_copies_by_domain` gauge is published by `DomainCounter`
+> (`internal/controller/domain_counter.go`). Tests: `keyset_test.go`.
 
 ## Goal
 
@@ -74,16 +81,28 @@ Non-breaking: the cluster deploys the new image whenever; old annotations keep
 working; operators re-annotate at leisure (or let reconciles migrate copies).
 No coordinated re-annotation required.
 
-## Remaining work (this is a plan; code + tests to follow)
+## Status of the work
 
-1. Add `KeySet` + methods in `internal/controller/replikate.go`; derive
-   `CredentialLabel` from it.
-2. Rewire `syncer.go`, `webhook.go`, `cross_cluster.go`, `registry.go`,
+Done (shipped in 1.3.0):
+
+1. ✅ `KeySet` + methods in `internal/controller/keyset.go`; `CredentialLabel`
+   derived from it (added to `Keys`).
+2. ✅ Rewired `syncer.go`, `webhook.go`, `cross_cluster.go`, `registry.go`,
    `cluster_controller.go`, `cmd/main.go` from `Keys` → `KeySet`.
-3. Tests: a source/copy annotated under the *legacy* domain is still recognized,
-   updated, and finalized; a reconcile re-stamps a legacy copy to the primary
-   domain; with the legacy list empty, only the primary is honored. Extend the
-   existing controller test suite.
-4. Docs/examples/README swept to the new primary; note legacy is still honored.
-5. Bump to a new **minor** (additive, non-breaking); the legacy-drop is the later
-   **major**.
+3. ✅ Tests (`keyset_test.go`): a source/copy annotated under the legacy domain is
+   recognized, migrated, and finalized; a reconcile re-stamps a legacy copy to the
+   primary domain and emits `Adopted`; a stale legacy-stamped copy is pruned; with
+   the legacy list empty only the primary is honored.
+4. ✅ Cluster-side refinements: convergence documented (self-migrates on the next
+   source reconcile — source change, manager resync, or restart) and a completion
+   signal added (`replikate_copies_by_domain` gauge via `DomainCounter`, plus
+   `replikate_copies_migrated_total` counter).
+5. ✅ Bumped to a new **minor** (1.3.0, additive/non-breaking). The legacy-drop
+   (default `previousAnnotationDomain` → `""`, remove the honoring path) is the
+   later **major**.
+
+Follow-ups (not blocking the cluster deploy):
+
+- Sweep README/examples prose to the new primary domain, noting the previous one
+  is still honored.
+- ubixsys-web docs refresh for Replikate (release convention).

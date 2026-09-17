@@ -7,20 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-16
+
+Non-breaking annotation-domain migration and a per-target namespace override.
+The default key prefix moves from `replikate.brainchurts.com` to
+`replikate.ubixsys.com`, but existing sources and copies stamped under the old
+prefix keep working and self-migrate — no coordinated re-annotation required.
+
 ### Added
 
-- **Planned: dual annotation-domain support** (design in
-  `docs/design/dual-annotation-domain.md`, branch `feat/dual-annotation-domain`).
-  The default key prefix moves to `replikate.ubixsys.com` while
-  `replikate.brainchurts.com` stays honored (reads/matching), so the migration is
-  **non-breaking**; new/updated copies self-migrate to the new domain, and the
-  legacy prefix is dropped in a later major. Code + tests to follow — not yet wired.
-
+- **Dual annotation-domain support** (design in
+  `docs/design/dual-annotation-domain.md`). The primary key prefix (writes) is
+  now configurable independently of a **previous** prefix still honored for
+  reads/matching/adoption (`--previous-annotation-domain` / chart
+  `previousAnnotationDomain`, default `replikate.brainchurts.com`). A source or
+  managed copy stamped under the previous domain is still recognized, driven, and
+  finalized; every write **self-migrates** the copy to the primary domain in
+  place — never delete-then-recreate, since copies can be live TLS secrets — and
+  emits an `Adopted` event so a large migration is observable. The finalizer and
+  the cross-cluster credential label honor the previous domain too. Migration is
+  *set both → converge → drop the previous prefix* (set
+  `previousAnnotationDomain: ""`) in a later major.
+  - **Convergence:** a copy self-migrates on the next reconcile of *its source*,
+    which is driven by a source change, the manager's periodic resync, or a
+    controller restart (a restart forces a full reconcile and thus immediate
+    convergence). Nothing breaks while migration is slow — the previous domain
+    stays matched throughout.
+  - **Completion signal:** two metrics — `replikate_copies_by_domain{domain,kind}`
+    (a gauge; watch the previous domain fall to 0 before dropping it) and
+    `replikate_copies_migrated_total{from_domain}` (a counter of adoption events).
 - Cross-cluster **per-target namespace override**: an entry in the
   `target-clusters` annotation may be `cluster:namespace` to place that spoke's
   copy in a chosen namespace instead of the source's own (a bare `cluster` keeps
   the previous behavior). Changing the override prunes the copy from the old
   namespace on that spoke.
+
+### Changed
+
+- **Default annotation domain is now `replikate.ubixsys.com`** (was
+  `replikate.brainchurts.com`). This is non-breaking because the previous domain
+  is honored by default; operators relying on the old default should pin
+  `annotationDomain` (and, when ready to stop honoring the old prefix,
+  `previousAnnotationDomain: ""`) explicitly.
 
 ## [1.2.0] - 2026-08-11
 
@@ -206,7 +234,8 @@ semantics are considered stable and won't change incompatibly without a 2.0.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/cwolsen7905/replikate/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cwolsen7905/replikate/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/cwolsen7905/replikate/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/cwolsen7905/replikate/compare/v0.4.0...v1.0.0

@@ -16,8 +16,11 @@ import (
 
 const (
 	// CredentialLabel marks a Secret in the controller's namespace as a spoke
-	// cluster credential. The Secret's name is the cluster id.
-	CredentialLabel = "replikate.brainchurts.com/cluster-credential"
+	// cluster credential under the default primary domain. The Secret's name is
+	// the cluster id. The credential reconciler matches this label under the
+	// configured primary *or* legacy domains (see KeySet.hasCredentialLabel); the
+	// const remains as the default-domain value for tooling and tests.
+	CredentialLabel = DefaultDomain + "/cluster-credential"
 
 	// credentialKubeconfigKey is the Secret data key holding the spoke's
 	// kubeconfig.

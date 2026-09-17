@@ -68,7 +68,7 @@ func TestMain(m *testing.M) {
 
 	syncer := &Syncer{
 		Client:            mgr.GetClient(),
-		Keys:              NewKeys(DefaultDomain),
+		Keys:              NewKeySet(DefaultDomain),
 		Recorder:          mgr.GetEventRecorderFor("replikate"),
 		ExcludeNamespaces: NamespaceSet("kube-system,kube-public,kube-node-lease"),
 		Registry:          testRegistry, // cross-cluster active; only annotated sources fan out
@@ -90,6 +90,7 @@ func TestMain(m *testing.M) {
 		Registry:      testRegistry,
 		Recorder:      mgr.GetEventRecorderFor("replikate-cluster"),
 		Namespace:     credentialNS,
+		Keys:          NewKeySet(DefaultDomain),
 		HubClusterUID: hubUID,
 		Notify:        []chan<- event.GenericEvent{cmReady, secReady},
 	}).SetupWithManager(mgr); err != nil {

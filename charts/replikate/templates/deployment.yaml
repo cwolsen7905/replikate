@@ -38,6 +38,7 @@ spec:
           args:
             - --leader-elect={{ .Values.leaderElection.enabled }}
             - --annotation-domain={{ .Values.annotationDomain }}
+            - --previous-annotation-domain={{ .Values.previousAnnotationDomain }}
             - --exclude-namespaces={{ join "," .Values.excludeNamespaces }}
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8080
