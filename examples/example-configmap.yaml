@@ -6,7 +6,7 @@ metadata:
   name: shared-config
   namespace: default
   annotations:
-    replikate.brainchurts.com/sync: "team=web"
+    replikate.ubixsys.com/sync: "team=web"
 data:
   LOG_LEVEL: "info"
   FEATURE_FLAGS: "beta"

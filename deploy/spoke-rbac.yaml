@@ -22,7 +22,7 @@
 #   # On the HUB, register the spoke (Secret name = cluster id):
 #   kubectl -n replikate-system create secret generic spoke-1 \
 #     --from-file=kubeconfig=/tmp/spoke.kubeconfig
-#   kubectl -n replikate-system label secret spoke-1 replikate.brainchurts.com/cluster-credential=true
+#   kubectl -n replikate-system label secret spoke-1 replikate.ubixsys.com/cluster-credential=true
 #
 apiVersion: v1
 kind: Namespace

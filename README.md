@@ -9,7 +9,7 @@ Replikate is a lightweight, BSD-licensed Kubernetes controller that replicates C
 
 ## How it works
 
-Annotate a ConfigMap or Secret with `replikate.brainchurts.com/sync`. The controller then maintains a managed copy of it in every namespace you select:
+Annotate a ConfigMap or Secret with `replikate.ubixsys.com/sync`. The controller then maintains a managed copy of it in every namespace you select:
 
 - **Value = a label selector** (e.g. `team=web`) → copies land in namespaces whose labels match.
 - **Value = empty string** (`""`) → copies land in every namespace.
@@ -20,7 +20,9 @@ Replikate keeps copies in lockstep with the source:
 - Source deleted, or the annotation removed → copies are deleted (via a finalizer).
 - A new namespace appears that matches the selector → it is populated automatically.
 
-Each copy is stamped with `replikate.brainchurts.com/managed-by=replikate` plus origin labels. Replikate will **never overwrite an object it does not manage** — with one deliberate exception: copies left behind by AppsCode's config-syncer (see [Migrating from config-syncer](#migrating-from-config-syncer)). Every action it takes (create / update / adopt / delete a copy) is logged, and it only writes when something actually changed, so the controller logs stay meaningful.
+Each copy is stamped with `replikate.ubixsys.com/managed-by=replikate` plus origin labels. Replikate will **never overwrite an object it does not manage** — with one deliberate exception: copies left behind by AppsCode's config-syncer (see [Migrating from config-syncer](#migrating-from-config-syncer)). Every action it takes (create / update / adopt / delete a copy) is logged, and it only writes when something actually changed, so the controller logs stay meaningful.
+
+> **Domain migration (1.3.0).** The default key prefix moved from `replikate.brainchurts.com` to `replikate.ubixsys.com`. The previous prefix is still honored for reads, matching, and adoption (`--previous-annotation-domain` / chart `previousAnnotationDomain`, default `replikate.brainchurts.com`), and each reconcile self-migrates a copy to the new prefix in place — so upgrading is **non-breaking**, with no coordinated re-annotation. Watch the `replikate_copies_by_domain` gauge fall to 0 for the old prefix, then set `previousAnnotationDomain: ""` to finish the migration. Details: [dual annotation-domain](docs/design/dual-annotation-domain.md).
 
 ## Quick start
 
@@ -48,7 +50,7 @@ metadata:
   name: shared-config
   namespace: default
   annotations:
-    replikate.brainchurts.com/sync: "team=web"   # "" for all namespaces
+    replikate.ubixsys.com/sync: "team=web"   # "" for all namespaces
 data:
   LOG_LEVEL: "info"
 ```
@@ -59,7 +61,7 @@ Replikate is annotation-compatible with AppsCode's config-syncer (kubed): the va
 
 1. Deploy Replikate alongside config-syncer.
 2. Scale config-syncer to zero so it stops reacting to the annotation change.
-3. Rename the annotation on your sources from `kubed.appscode.com/sync` to `replikate.brainchurts.com/sync`.
+3. Rename the annotation on your sources from `kubed.appscode.com/sync` to `replikate.ubixsys.com/sync`.
 4. Remove config-syncer once Replikate is managing the copies.
 
 Replikate **adopts config-syncer's existing copies in place** — any object carrying config-syncer's `kubed.appscode.com/origin` marker is relabeled and taken over rather than refused, so replicated data (for example, TLS secrets) is never deleted and recreated during the cutover.

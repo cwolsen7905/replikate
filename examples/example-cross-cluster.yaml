@@ -18,7 +18,7 @@ metadata:
   name: shared-config
   namespace: default
   annotations:
-    replikate.brainchurts.com/sync: "team=web"
-    replikate.brainchurts.com/target-clusters: "spoke-a,spoke-b:shared"
+    replikate.ubixsys.com/sync: "team=web"
+    replikate.ubixsys.com/target-clusters: "spoke-a,spoke-b:shared"
 data:
   LOG_LEVEL: "info"
