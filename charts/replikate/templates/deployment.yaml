@@ -45,6 +45,10 @@ spec:
             {{- if .Values.webhook.enabled }}
             - --enable-webhook=true
             {{- end }}
+            {{- if .Values.crossCluster.enabled }}
+            - --enable-cross-cluster=true
+            - --cluster-credential-namespace={{ .Values.crossCluster.credentialNamespace | default .Release.Namespace }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
