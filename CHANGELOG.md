@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-29
+
+Several namespaces per spoke cluster. Additive: existing `target-clusters`
+values behave exactly as before.
+
+### Added
+
+- A cluster may be listed more than once in `target-clusters` to place copies
+  in several namespaces on that spoke, e.g.
+  `green:webservices,green:live,green:neptune`. Previously the entries were
+  keyed by cluster, so repeated entries collapsed to the last one and only one
+  copy landed per spoke. A bare `green` still means the source's own namespace
+  and can be mixed with explicit ones; duplicates are ignored.
+
+### Changed
+
+- Remote stale-namespace pruning now runs on every reconcile of a
+  cross-cluster source, not only after a copy was created. Dropping one of
+  several namespaces creates nothing, so the create-gated prune from 1.3.0
+  would have left that copy behind. The cost is one label-selected List per
+  targeted spoke per reconcile.
+
 ## [chart 1.3.1] - 2026-09-29
 
 Chart-only fix; the controller image is unchanged (appVersion stays `1.3.0`).

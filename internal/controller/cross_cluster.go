@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -10,17 +11,21 @@ import (
 )
 
 // parseTargetClusters parses the target-clusters annotation into a map of spoke
-// cluster id to the destination namespace on that spoke. Each comma-separated
-// entry is "cluster" (copy into the source's own namespace) or
-// "cluster:namespace" (copy into that namespace). Blank entries are ignored; a
-// nil result means no targets.
-func parseTargetClusters(csv string) map[string]string {
-	out := map[string]string{}
+// cluster id to the destination namespaces on that spoke. Each comma-separated
+// entry is "cluster" (copy into the source's own namespace, recorded as "") or
+// "cluster:namespace" (copy into that namespace); a cluster may be listed more
+// than once to place copies in several namespaces, e.g. "green:web,green:api".
+// Namespaces keep their first-seen order and are deduplicated. Blank entries
+// are ignored; a nil result means no targets.
+func parseTargetClusters(csv string) map[string][]string {
+	out := map[string][]string{}
 	for _, part := range strings.Split(csv, ",") {
 		id, ns, _ := strings.Cut(strings.TrimSpace(part), ":")
-		if id = strings.TrimSpace(id); id != "" {
-			out[id] = strings.TrimSpace(ns)
+		id, ns = strings.TrimSpace(id), strings.TrimSpace(ns)
+		if id == "" || slices.Contains(out[id], ns) {
+			continue
 		}
+		out[id] = append(out[id], ns)
 	}
 	if len(out) == 0 {
 		return nil
@@ -28,14 +33,30 @@ func parseTargetClusters(csv string) map[string]string {
 	return out
 }
 
+// destNamespaces resolves a spoke's parsed target namespaces to concrete ones:
+// "" (a bare cluster entry) becomes src's own namespace, and duplicates that
+// collapse onto it are dropped.
+func destNamespaces(src client.Object, targets []string) []string {
+	out := make([]string, 0, len(targets))
+	for _, ns := range targets {
+		if ns == "" {
+			ns = src.GetNamespace()
+		}
+		if !slices.Contains(out, ns) {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
+
 // reconcileRemote replicates src into the spoke clusters named by its
-// target-clusters annotation — one copy in src's own namespace per cluster
+// target-clusters annotation — one copy per listed namespace on each spoke
 // (config-syncer-style: no remote selector fan-out) — and removes copies from
-// spokes it no longer targets. It is best-effort per spoke: an unreachable or
-// misconfigured cluster is reported via an event and skipped, never failing the
-// reconcile or blocking the local path, which has already succeeded. It reports
-// whether any spoke failed, so the caller can requeue and retry sooner than the
-// next natural reconcile.
+// spokes and namespaces it no longer targets. It is best-effort per spoke: an
+// unreachable or misconfigured cluster is reported via an event and skipped,
+// never failing the reconcile or blocking the local path, which has already
+// succeeded. It reports whether any spoke failed, so the caller can requeue and
+// retry sooner than the next natural reconcile.
 func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed bool) {
 	l := log.FromContext(ctx)
 	tcValue, _ := s.Keys.targetClustersValue(src.GetAnnotations())
@@ -58,7 +79,7 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 		if !ok {
 			continue
 		}
-		destNS, targeted := targets[id]
+		nsTargets, targeted := targets[id]
 		if !targeted {
 			if n, err := s.deleteCopies(ctx, cl, src, nil, s.HubClusterUID); err != nil {
 				l.Error(err, "cross-cluster cleanup failed", "cluster", id)
@@ -70,33 +91,33 @@ func (s *Syncer) reconcileRemote(ctx context.Context, src client.Object) (failed
 			}
 			continue
 		}
-		if destNS == "" {
-			destNS = src.GetNamespace()
-		}
-		act, err := s.upsertCopy(ctx, cl, src, destNS, s.HubClusterUID)
-		if err != nil {
-			l.Error(err, "cross-cluster copy failed", "cluster", id, "namespace", destNS)
-			s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
-				"Replicating to cluster %q failed: %v", id, err)
-			failed = true
-			continue
-		}
-		if act != actionNone {
-			remoteCopyOperationsTotal.WithLabelValues(id, operationFor(act)).Inc()
-			s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
-				"Replicated to cluster %q namespace %q", id, destNS)
-		}
-		// Prune copies left in other namespaces on this spoke after the
-		// destination namespace override changed. Only needed when we just
-		// created a copy — a namespace change always shows up as a create in the
-		// new namespace — so steady-state reconciles skip the extra List.
-		if act == actionCreated {
-			if n, err := s.deleteCopies(ctx, cl, src, map[string]bool{destNS: true}, s.HubClusterUID); err != nil {
-				l.Error(err, "cross-cluster stale-namespace cleanup failed", "cluster", id)
+		keep := map[string]bool{}
+		for _, destNS := range destNamespaces(src, nsTargets) {
+			keep[destNS] = true
+			act, err := s.upsertCopy(ctx, cl, src, destNS, s.HubClusterUID)
+			if err != nil {
+				l.Error(err, "cross-cluster copy failed", "cluster", id, "namespace", destNS)
+				s.Recorder.Eventf(src, corev1.EventTypeWarning, "RemoteError",
+					"Replicating to cluster %q namespace %q failed: %v", id, destNS, err)
 				failed = true
-			} else if n > 0 {
-				remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
+				continue
 			}
+			if act != actionNone {
+				remoteCopyOperationsTotal.WithLabelValues(id, operationFor(act)).Inc()
+				s.Recorder.Eventf(src, corev1.EventTypeNormal, "RemoteReplicated",
+					"Replicated to cluster %q namespace %q", id, destNS)
+			}
+		}
+		// Prune copies in namespaces on this spoke that are no longer listed. This
+		// runs on every reconcile, not only after a create: dropping one of several
+		// namespaces ("green:a,green:b" -> "green:a") creates nothing, so a
+		// create-gated prune would leave the old copy behind. The cost is one
+		// label-selected List per targeted spoke.
+		if n, err := s.deleteCopies(ctx, cl, src, keep, s.HubClusterUID); err != nil {
+			l.Error(err, "cross-cluster stale-namespace cleanup failed", "cluster", id)
+			failed = true
+		} else if n > 0 {
+			remoteCopyOperationsTotal.WithLabelValues(id, "deleted").Add(float64(n))
 		}
 	}
 	return failed

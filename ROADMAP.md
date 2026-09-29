@@ -98,6 +98,9 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
       `cluster:namespace` to place that spoke's copy in a chosen namespace
       instead of the source's; changing it prunes the copy from the old
       namespace.
+    - ✅ **Several namespaces per spoke** (1.4.0) — repeat a cluster
+      (`green:webservices,green:live`) to place a copy in each listed namespace;
+      dropping one prunes its copy.
   - 🔭 **Phase 3 — remote selector fan-out + drift correction**: per-spoke
     namespace + managed-copy watches (opt-in native fan-out).
   - 🔭 **Phase 4 — webhook + metrics + packaging.**

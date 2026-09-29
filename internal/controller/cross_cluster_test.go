@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -278,18 +279,71 @@ func TestReconcile_CrossClusterPrunesLegacyCopy(t *testing.T) {
 }
 
 func TestParseTargetClusters(t *testing.T) {
-	got := parseTargetClusters(" spoke-a , spoke-b:shared ,, spoke-c: prod ")
-	want := map[string]string{"spoke-a": "", "spoke-b": "shared", "spoke-c": "prod"}
-	if len(got) != len(want) {
+	got := parseTargetClusters(" spoke-a , spoke-b:shared ,, spoke-c: prod , spoke-c:web, spoke-c:prod ")
+	want := map[string][]string{"spoke-a": {""}, "spoke-b": {"shared"}, "spoke-c": {"prod", "web"}}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parsed %v, want %v", got, want)
-	}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("cluster %q namespace = %q, want %q", k, got[k], v)
-		}
 	}
 	if parseTargetClusters("") != nil || parseTargetClusters(" , ") != nil {
 		t.Error("empty input should parse to nil")
+	}
+}
+
+func TestReconcile_CrossClusterMultipleNamespaces(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke:webservices,spoke:live,spoke:neptune", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	for _, n := range []string{"webservices", "live", "neptune"} {
+		if _, ok := remoteCopy(t, spoke, n, "cfg"); !ok {
+			t.Errorf("expected a copy in %q", n)
+		}
+	}
+	if _, ok := remoteCopy(t, spoke, "default", "cfg"); ok {
+		t.Error("did not expect a copy in the source namespace when not listed")
+	}
+}
+
+func TestReconcile_CrossClusterBareAndOverride(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke, spoke:live, spoke:default", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	for _, n := range []string{"default", "live"} {
+		if _, ok := remoteCopy(t, spoke, n, "cfg"); !ok {
+			t.Errorf("expected a copy in %q", n)
+		}
+	}
+}
+
+func TestReconcile_CrossClusterDroppedNamespacePruned(t *testing.T) {
+	spoke := newSpoke()
+	s, _ := newTestSyncer(ns("default", nil),
+		sourceWithTargets("cfg", "default", "spoke:a,spoke:b", map[string]string{"k": "v"}))
+	s.Registry = registryWith(map[string]client.Client{"spoke": spoke})
+	reconcileConfigMap(t, s, "default", "cfg")
+	if _, ok := remoteCopy(t, spoke, "b", "cfg"); !ok {
+		t.Fatal("precondition: copy in 'b'")
+	}
+
+	// Drop "b" from the list. "a" already exists, so nothing is created — the
+	// prune must still remove the copy in "b".
+	src, _ := getCM(t, s, "default", "cfg")
+	src.Annotations[testKeys.TargetClustersAnnotation] = "spoke:a"
+	if err := s.Update(context.Background(), src); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	reconcileConfigMap(t, s, "default", "cfg")
+
+	if _, ok := remoteCopy(t, spoke, "a", "cfg"); !ok {
+		t.Error("copy in 'a' should remain")
+	}
+	if _, ok := remoteCopy(t, spoke, "b", "cfg"); ok {
+		t.Error("copy in dropped namespace 'b' should have been pruned")
 	}
 }
 
@@ -334,7 +388,7 @@ func TestReconcile_CrossClusterNamespaceOverrideChange(t *testing.T) {
 	}
 }
 
-func TestReconcile_CrossClusterSteadyStateSkipsPrune(t *testing.T) {
+func TestReconcile_CrossClusterSteadyStatePrunesStray(t *testing.T) {
 	spoke := newSpoke()
 	s, _ := newTestSyncer(ns("default", nil),
 		sourceWithTargets("cfg", "default", "spoke:shared", map[string]string{"k": "v"}))
@@ -355,11 +409,11 @@ func TestReconcile_CrossClusterSteadyStateSkipsPrune(t *testing.T) {
 		t.Fatalf("seed stray: %v", err)
 	}
 
-	// Steady-state reconcile (no create): the stale-namespace prune is skipped,
-	// so the stray survives — it costs no extra List on the hot path.
+	// A steady-state reconcile (nothing created) still prunes it: the target
+	// list can shrink without any create, so the prune is not create-gated.
 	reconcileConfigMap(t, s, "default", "cfg")
-	if _, ok := remoteCopy(t, spoke, "leftover", "cfg"); !ok {
-		t.Error("steady-state reconcile should not run the stale-namespace prune")
+	if _, ok := remoteCopy(t, spoke, "leftover", "cfg"); ok {
+		t.Error("steady-state reconcile should prune a copy in an unlisted namespace")
 	}
 }
 
