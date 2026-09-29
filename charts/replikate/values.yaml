@@ -31,6 +31,17 @@ excludeNamespaces:
 leaderElection:
   enabled: true
 
+# Cross-cluster replication (hub side). When enabled, this Replikate acts as a
+# hub: it registers spoke clusters from kubeconfig Secrets labeled
+# <annotationDomain>/cluster-credential=true in credentialNamespace, and copies
+# sources carrying a target-clusters annotation into them. Apply
+# deploy/spoke-rbac.yaml on each spoke to mint the credential.
+crossCluster:
+  enabled: false
+  # Namespace holding the spoke credential Secrets; defaults to the release
+  # namespace when empty.
+  credentialNamespace: ""
+
 serviceAccount:
   create: true
   name: ""

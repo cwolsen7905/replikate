@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [chart 1.3.1] - 2026-09-29
+
+Chart-only fix; the controller image is unchanged (appVersion stays `1.3.0`).
+
+### Fixed
+
+- The Helm chart can now turn on cross-cluster replication. The controller has
+  had `--enable-cross-cluster` since 1.1.0, but the chart exposed no way to pass
+  it or `--cluster-credential-namespace` (and sets no `$POD_NAMESPACE`), so a
+  Helm-installed hub could not register spokes. New values:
+  `crossCluster.enabled` (default `false`) and `crossCluster.credentialNamespace`
+  (defaults to the release namespace).
+
 ## [1.3.0] - 2026-09-16
 
 Non-breaking annotation-domain migration and a per-target namespace override.
