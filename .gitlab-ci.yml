@@ -22,8 +22,24 @@ variables:
   UBIX_APPROVAL_OWNERS: "cwolsen"
 
 # The instance's k8s runner takes tagged jobs only and runs each job's image.
+# Fail closed (as in ubixvault): the shared script passes as UNVERIFIED when it has no
+# token or cannot reach GitLab, which would let an unsigned MR merge. The before_script
+# refuses to run without a token, and wraps the script's `bash` call so an UNVERIFIED
+# result fails the job. Drop this once uBixCore's script can fail closed by itself.
 require-approval:
   tags: [k8s]
+  before_script:
+    - '[ -n "${APPROVAL_GITLAB_TOKEN:-${AI_REVIEW_GITLAB_TOKEN:-}}" ] || { echo "require-approval: FAILED: no APPROVAL_GITLAB_TOKEN or AI_REVIEW_GITLAB_TOKEN, so the sign-off cannot be checked; failing closed."; exit 1; }'
+    - command -v bash >/dev/null 2>&1 || apk add --no-cache bash >/dev/null
+    - |
+      bash() {
+        out="$(command bash "$@")" && rc=0 || rc=$?
+        printf '%s\n' "$out"
+        case "$out" in *UNVERIFIED*)
+          echo "require-approval: FAILED: the sign-off could not be verified; failing closed. Retry the job."; return 1 ;;
+        esac
+        return "$rc"
+      }
 
 # The same checks as the GitHub build job, short of the envtest integration tests (they
 # download control-plane binaries; GitHub still runs them after merge). A pipeline also
