@@ -1,0 +1,36 @@
+# GitLab CI for merge requests. GitHub Actions (.github/workflows/ci.yaml) still builds and
+# publishes the image from each mirror after a merge; this file only gates the merge itself.
+
+stages: [test]
+
+# MR pipelines only: one pipeline per push to an MR branch, and none on main, where GitHub
+# Actions takes over through the mirror.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+include:
+  # The merge sign-off gate: an Approve or a thumbs-up from an owner before merge
+  # (ubixcore docs/ci-require-approval.md). Runs in .post, after the checks below.
+  - project: ubixsys/ubixcore
+    ref: v0.47.0
+    file: ci/require-approval.yml
+
+variables:
+  UBIX_APPROVAL_OWNERS: "cwolsen"
+
+# The instance's k8s runner takes tagged jobs only and runs each job's image.
+require-approval:
+  tags: [k8s]
+
+# The same checks as the GitHub build job, short of the envtest integration tests (they
+# download control-plane binaries; GitHub still runs them after merge). A pipeline also
+# needs at least one job outside .post to start at all.
+go-check:
+  stage: test
+  image: golang:1.23
+  tags: [k8s]
+  script:
+    - go vet ./...
+    - go build ./...
+    - go test ./...
