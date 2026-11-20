@@ -12,8 +12,10 @@ workflow:
 include:
   # The merge sign-off gate: an Approve or a thumbs-up from an owner before merge
   # (ubixcore docs/ci-require-approval.md). Runs in .post, after the checks below.
+  # Pinned to the uBixCore commit that last changed the include: no release ships it yet
+  # (v0.47.0 predates it). Switch to the first v* tag that contains it once there is one.
   - project: ubixsys/ubixcore
-    ref: v0.47.0
+    ref: aaa3fb5f0272a8eeb6aa7debac0bf46d718402b4
     file: ci/require-approval.yml
 
 variables:
