@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-24
+
 The product is now **uBixReplikate**. The annotation prefix
 (`replikate.ubixsys.com`) does not change, so no manifest or copy is touched.
 
@@ -26,6 +28,10 @@ The product is now **uBixReplikate**. The annotation prefix
 
 ### Fixed
 
+- CI publishes the image on a manual run as well as on a push. Tags that
+  arrive through the GitLab push-mirror do not reliably fire a push event, and
+  the manual run the workflow recommends for them built and tested but never
+  pushed an image.
 - The README quickstart pinned image tag `v1.3.0`; published tags have no
   `v` (`1.3.0`), so that install could not pull its image. The chart's
   `appVersion` is used instead.
@@ -292,7 +298,8 @@ semantics are considered stable and won't change incompatibly without a 2.0.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/ubixsys/ubixreplikate/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ubixsys/ubixreplikate/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/ubixsys/ubixreplikate/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ubixsys/ubixreplikate/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ubixsys/ubixreplikate/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ubixsys/ubixreplikate/compare/v1.1.0...v1.2.0
