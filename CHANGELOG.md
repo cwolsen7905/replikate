@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `make deploy` installs into namespace `replikate-system`, as the README,
+  the Helm examples and the cross-cluster steps do (it used `replikate`). A
+  release installed with `make deploy` before this keeps upgrading in place
+  with `make deploy NAMESPACE=replikate`.
+- The merge sign-off include is pinned to uBixCore e2c10f50 (was aaa3fb5f),
+  which counts only `UBIX_APPROVAL_OWNERS`' Approve or 👍, the author
+  included; any other user's no longer passes the job. The fail-closed
+  wrapper is unchanged.
+
 ### Deprecated
 
 - The previous name is retiring. The next two releases after 1.4.1 are the
