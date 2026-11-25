@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "replikate.fullname" . }}-webhook
+  name: {{ include "ubixreplikate.fullname" . }}-webhook
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "replikate.labels" . | nindent 4 }}
+    {{- include "ubixreplikate.labels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "replikate.selectorLabels" . | nindent 4 }}
+    {{- include "ubixreplikate.selectorLabels" . | nindent 4 }}
   ports:
     - name: webhook
       port: 443
@@ -18,39 +18,39 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ include "replikate.fullname" . }}-selfsigned
+  name: {{ include "ubixreplikate.fullname" . }}-selfsigned
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "replikate.labels" . | nindent 4 }}
+    {{- include "ubixreplikate.labels" . | nindent 4 }}
 spec:
   selfSigned: {}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "replikate.fullname" . }}-webhook
+  name: {{ include "ubixreplikate.fullname" . }}-webhook
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "replikate.labels" . | nindent 4 }}
+    {{- include "ubixreplikate.labels" . | nindent 4 }}
 spec:
-  secretName: {{ include "replikate.fullname" . }}-webhook-cert
+  secretName: {{ include "ubixreplikate.fullname" . }}-webhook-cert
   dnsNames:
-    - {{ include "replikate.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
-    - {{ include "replikate.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+    - {{ include "ubixreplikate.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "ubixreplikate.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
-    name: {{ include "replikate.fullname" . }}-selfsigned
+    name: {{ include "ubixreplikate.fullname" . }}-selfsigned
     kind: Issuer
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: {{ include "replikate.fullname" . }}
+  name: {{ include "ubixreplikate.fullname" . }}
   labels:
-    {{- include "replikate.labels" . | nindent 4 }}
+    {{- include "ubixreplikate.labels" . | nindent 4 }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "replikate.fullname" . }}-webhook
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "ubixreplikate.fullname" . }}-webhook
 webhooks:
-  - name: sync-selector.{{ include "replikate.name" . }}.{{ .Values.annotationDomain }}
+  - name: sync-selector.{{ include "ubixreplikate.name" . }}.{{ .Values.annotationDomain }}
     admissionReviewVersions: ["v1"]
     sideEffects: None
     failurePolicy: {{ .Values.webhook.failurePolicy }}
@@ -65,7 +65,7 @@ webhooks:
             - kube-system
     clientConfig:
       service:
-        name: {{ include "replikate.fullname" . }}-webhook
+        name: {{ include "ubixreplikate.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}
         path: /validate-sync-selector
         port: 443

@@ -1,26 +1,26 @@
-{{- define "replikate.name" -}}
+{{- define "ubixreplikate.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "replikate.fullname" -}}
+{{- define "ubixreplikate.fullname" -}}
 {{- default .Chart.Name .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "replikate.labels" -}}
-app.kubernetes.io/name: {{ include "replikate.name" . }}
+{{- define "ubixreplikate.labels" -}}
+app.kubernetes.io/name: {{ include "ubixreplikate.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end -}}
 
-{{- define "replikate.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "replikate.name" . }}
+{{- define "ubixreplikate.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "ubixreplikate.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{- define "replikate.serviceAccountName" -}}
+{{- define "ubixreplikate.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (include "replikate.fullname" .) .Values.serviceAccount.name -}}
+{{- default (include "ubixreplikate.fullname" .) .Values.serviceAccount.name -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
