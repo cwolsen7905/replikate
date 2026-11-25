@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deprecated
+
+- The previous name is retiring. The next two releases after 1.4.1 are the
+  last published as `ghcr.io/ubixsys/replikate` (and to the
+  `github.com/ubixsys/replikate` mirror); from the third release on, images go
+  to `ghcr.io/ubixsys/ubixreplikate` only and the old GitHub repository is
+  archived. Existing tags under the old name stay pullable.
+
 ## [1.4.1] - 2026-11-24
 
 The product is now **uBixReplikate**. The annotation prefix

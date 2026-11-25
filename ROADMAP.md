@@ -58,6 +58,14 @@ Legend: ✅ done · 🚧 in progress · 🔭 planned · 💡 exploring
   admission webhook end to end (real `ValidatingWebhookConfiguration` + CA
   injection over TLS) — the one path `envtest` can't model. Green in CI.
 
+## Retiring the `replikate` name
+
+Decided 2026-11-24, after the rename to uBixReplikate shipped in 1.4.1.
+
+- [ ] Release 1 after 1.4.1: still published to both `ghcr.io/ubixsys/replikate` and `ghcr.io/ubixsys/ubixreplikate`. Its release notes repeat the deprecation.
+- [ ] Release 2 after 1.4.1: the last one under the old name. Its release notes say so plainly.
+- [ ] Then, before release 3: remove the GitLab push-mirror to `github.com/ubixsys/replikate`, archive that repository on GitHub (its README pointing at `ubixsys/ubixreplikate`), and drop the old-name lines from the README and CHANGELOG notes. Published tags under the old image name are left in place.
+
 ## Later / exploring 💡
 
 - 🚧 **Cross-cluster replication** (hub-and-spoke) — replicate a source into
