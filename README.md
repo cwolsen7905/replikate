@@ -1,11 +1,11 @@
-# replikate
+# uBixReplikate
 
-[![CI](https://github.com/ubixsys/replikate/actions/workflows/ci.yaml/badge.svg)](https://github.com/ubixsys/replikate/actions/workflows/ci.yaml)
-[![Release](https://img.shields.io/github/v/release/ubixsys/replikate?sort=semver)](https://github.com/ubixsys/replikate/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/cwolsen7905/replikate)](https://goreportcard.com/report/github.com/cwolsen7905/replikate)
+[![CI](https://github.com/ubixsys/ubixreplikate/actions/workflows/ci.yaml/badge.svg)](https://github.com/ubixsys/ubixreplikate/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/ubixsys/ubixreplikate?sort=semver)](https://github.com/ubixsys/ubixreplikate/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ubixsys/ubixreplikate)](https://goreportcard.com/report/github.com/ubixsys/ubixreplikate)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-Replikate is a lightweight, BSD-licensed Kubernetes controller that replicates ConfigMaps and Secrets across namespaces. Annotate a source object and Replikate copies it into every matching namespace — selected by labels or cluster-wide — keeping copies in sync on change, cleaning them up on delete, and populating new namespaces automatically.
+uBixReplikate is a lightweight, BSD-licensed Kubernetes controller that replicates ConfigMaps and Secrets across namespaces. Annotate a source object and uBixReplikate copies it into every matching namespace — selected by labels or cluster-wide — keeping copies in sync on change, cleaning them up on delete, and populating new namespaces automatically.
 
 ## How it works
 
@@ -14,13 +14,13 @@ Annotate a ConfigMap or Secret with `replikate.ubixsys.com/sync`. The controller
 - **Value = a label selector** (e.g. `team=web`) → copies land in namespaces whose labels match.
 - **Value = empty string** (`""`) → copies land in every namespace.
 
-Replikate keeps copies in lockstep with the source:
+uBixReplikate keeps copies in lockstep with the source:
 
 - Source changed → every copy is updated.
 - Source deleted, or the annotation removed → copies are deleted (via a finalizer).
 - A new namespace appears that matches the selector → it is populated automatically.
 
-Each copy is stamped with `replikate.ubixsys.com/managed-by=replikate` plus origin labels. Replikate will **never overwrite an object it does not manage** — with one deliberate exception: copies left behind by AppsCode's config-syncer (see [Migrating from config-syncer](#migrating-from-config-syncer)). Every action it takes (create / update / adopt / delete a copy) is logged, and it only writes when something actually changed, so the controller logs stay meaningful.
+Each copy is stamped with `replikate.ubixsys.com/managed-by=replikate` plus origin labels. uBixReplikate will **never overwrite an object it does not manage** — with one deliberate exception: copies left behind by AppsCode's config-syncer (see [Migrating from config-syncer](#migrating-from-config-syncer)). Every action it takes (create / update / adopt / delete a copy) is logged, and it only writes when something actually changed, so the controller logs stay meaningful.
 
 > **Domain migration (1.3.0).** The default key prefix moved from `replikate.brainchurts.com` to `replikate.ubixsys.com`. The previous prefix stays honored for reads, matching, and adoption (`--previous-annotation-domain` / chart `previousAnnotationDomain`, default `replikate.brainchurts.com`), so upgrading is **non-breaking**. Migration has two halves:
 >
@@ -31,20 +31,28 @@ Each copy is stamped with `replikate.ubixsys.com/managed-by=replikate` plus orig
 
 ## Quick start
 
-Images are published multi-arch (`linux/amd64` + `linux/arm64`) to `ghcr.io/ubixsys/replikate` by CI on every push to `main` and on release tags. (A personal mirror at `ghcr.io/cwolsen7905/replikate` also builds; consumers should use the org path.)
+Images are published multi-arch (`linux/amd64` + `linux/arm64`) to `ghcr.io/ubixsys/ubixreplikate` by CI on every push to `main` and on release tags. The chart pulls the image at its own `appVersion`, so there is no tag to pass. (Releases are also published under the previous name, `ghcr.io/ubixsys/replikate`, for a transition period.)
 
 ```sh
-# 1. Install into the cluster (image is built by CI; or `make docker-build docker-push`):
-make deploy IMAGE_REPO=ghcr.io/ubixsys/replikate IMAGE_TAG=v1.3.0
-#   (equivalently: helm upgrade --install replikate charts/replikate \
-#      --namespace replikate --create-namespace \
-#      --set image.tag=v1.3.0)
+# 1. Install into the cluster:
+helm upgrade --install replikate charts/ubixreplikate \
+  --namespace replikate-system --create-namespace
+#   (or, for an image you built yourself: make deploy IMAGE_REPO=<repo> IMAGE_TAG=<tag>)
 
 # 2. Try it:
 kubectl apply -f examples/example-configmap.yaml
 kubectl label namespace some-namespace team=web        # gets a copy
 kubectl get configmap shared-config -n some-namespace  # the replica
 ```
+
+### Upgrading from the `replikate` chart
+
+The chart is now `charts/ubixreplikate` and its default image is `ghcr.io/ubixsys/ubixreplikate`. The annotation prefix (`replikate.ubixsys.com`), the leader-election lease and the managed-copy labels are unchanged, so copies are untouched.
+
+- Upgrade the release you already have, in the namespace it is in: `helm upgrade replikate charts/ubixreplikate -n <namespace> --reuse-values`. A release created with `make deploy` lives in namespace `replikate`. Installing under a new release name or namespace would run a second controller.
+- Resource names (Deployment, ServiceAccount, ClusterRole, Services) follow the chart name and become `ubixreplikate`; Helm replaces the old ones during the upgrade, and the shared leader-election lease keeps one controller active throughout. To keep the old names, add `--set fullnameOverride=replikate`.
+- **If the validating webhook is enabled, keep the old names** (`--set fullnameOverride=replikate`). Renaming creates a new webhook Service and certificate, and with `failurePolicy: Fail` every ConfigMap and Secret create or update in the cluster is refused until cert-manager has issued it and the new pod serves.
+- If you set `image.repository` to `ghcr.io/ubixsys/replikate` yourself, it keeps working for now; switch it to `ghcr.io/ubixsys/ubixreplikate`.
 
 ## Example
 
@@ -62,14 +70,14 @@ data:
 
 ## Migrating from config-syncer
 
-Replikate is annotation-compatible with AppsCode's config-syncer (kubed): the value of the `sync` annotation is a namespace label selector with the same meaning. To migrate:
+uBixReplikate is annotation-compatible with AppsCode's config-syncer (kubed): the value of the `sync` annotation is a namespace label selector with the same meaning. To migrate:
 
-1. Deploy Replikate alongside config-syncer.
+1. Deploy uBixReplikate alongside config-syncer.
 2. Scale config-syncer to zero so it stops reacting to the annotation change.
 3. Rename the annotation on your sources from `kubed.appscode.com/sync` to `replikate.ubixsys.com/sync`.
-4. Remove config-syncer once Replikate is managing the copies.
+4. Remove config-syncer once uBixReplikate is managing the copies.
 
-Replikate **adopts config-syncer's existing copies in place** — any object carrying config-syncer's `kubed.appscode.com/origin` marker is relabeled and taken over rather than refused, so replicated data (for example, TLS secrets) is never deleted and recreated during the cutover.
+uBixReplikate **adopts config-syncer's existing copies in place** — any object carrying config-syncer's `kubed.appscode.com/origin` marker is relabeled and taken over rather than refused, so replicated data (for example, TLS secrets) is never deleted and recreated during the cutover.
 
 ## Development
 
@@ -80,13 +88,13 @@ make test     # go test ./...
 make run      # run against your current kubeconfig (out-of-cluster)
 ```
 
-Requires Go 1.23+, and Docker (with buildx/QEMU for multi-arch) + Helm for the image/deploy targets. The container is a `distroless/static:nonroot` image; RBAC and the Deployment ship in `charts/replikate`.
+Requires Go 1.23+, and Docker (with buildx/QEMU for multi-arch) + Helm for the image/deploy targets. The container is a `distroless/static:nonroot` image; RBAC and the Deployment ship in `charts/ubixreplikate`.
 
 ## Scope & limitations
 
 - Replicates **ConfigMaps and Secrets** by annotation. Intra-cluster by default; opt-in **cross-cluster** replication (chart `crossCluster.enabled=true` / `--enable-cross-cluster`, plus a `target-clusters` annotation) copies a source into other registered clusters — see [ROADMAP.md](ROADMAP.md) and `deploy/spoke-rbac.yaml`.
 - A manually-edited or deleted replica is restored **near-instantly** — managed copies are watched, not left until the next resync.
-- If two sources with the same name in different namespaces target the same namespace, the first to create the copy keeps it: Replikate refuses to overwrite a copy owned by another source and emits a `Conflict` event, rather than the two fighting over it.
+- If two sources with the same name in different namespaces target the same namespace, the first to create the copy keeps it: uBixReplikate refuses to overwrite a copy owned by another source and emits a `Conflict` event, rather than the two fighting over it.
 
 ## License
 

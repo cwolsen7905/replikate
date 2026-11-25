@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "replikate.fullname" . }}-metrics
+  name: {{ include "ubixreplikate.fullname" . }}-metrics
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "replikate.labels" . | nindent 4 }}
+    {{- include "ubixreplikate.labels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "replikate.selectorLabels" . | nindent 4 }}
+    {{- include "ubixreplikate.selectorLabels" . | nindent 4 }}
   ports:
     - name: metrics
       port: {{ .Values.metrics.service.port }}

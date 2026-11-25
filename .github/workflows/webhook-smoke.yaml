@@ -9,7 +9,7 @@ on:
     paths:
       - 'internal/controller/webhook.go'
       - 'cmd/main.go'
-      - 'charts/replikate/**'
+      - 'charts/ubixreplikate/**'
       - 'hack/webhook-smoke-test.sh'
       - '.github/workflows/webhook-smoke.yaml'
 

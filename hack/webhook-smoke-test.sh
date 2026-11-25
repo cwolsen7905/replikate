@@ -60,7 +60,7 @@ done
 
 # --- 4. install Replikate with the webhook enabled ---------------------------
 log "Installing Replikate (webhook enabled)"
-helm upgrade --install replikate "${REPO_ROOT}/charts/replikate" \
+helm upgrade --install replikate "${REPO_ROOT}/charts/ubixreplikate" \
   --namespace "${NS}" --create-namespace \
   --set image.repository="${IMAGE_REPO}" \
   --set image.tag="${IMAGE_TAG}" \

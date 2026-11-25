@@ -1,4 +1,4 @@
-IMAGE_REPO ?= ghcr.io/cwolsen7905/replikate
+IMAGE_REPO ?= ghcr.io/ubixsys/ubixreplikate
 IMAGE_TAG  ?= latest
 IMG        := $(IMAGE_REPO):$(IMAGE_TAG)
 NAMESPACE  ?= replikate
@@ -45,7 +45,7 @@ docker-push: ## Push the container image.
 	docker push $(IMG)
 
 deploy: ## Install/upgrade the Helm release.
-	helm upgrade --install replikate charts/replikate \
+	helm upgrade --install replikate charts/ubixreplikate \
 		--namespace $(NAMESPACE) --create-namespace \
 		--set image.repository=$(IMAGE_REPO) \
 		--set image.tag=$(IMAGE_TAG)

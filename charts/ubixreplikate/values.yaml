@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/ubixsys/replikate
+  repository: ghcr.io/ubixsys/ubixreplikate
   # tag defaults to the chart's appVersion when left empty
   tag: ""
   pullPolicy: IfNotPresent

@@ -10,7 +10,7 @@ Helm. A Kubernetes cluster — [kind](https://kind.sigs.k8s.io/) works well — 
 handy for trying changes end to end.
 
 ```sh
-git clone https://github.com/cwolsen7905/replikate
+git clone https://github.com/ubixsys/ubixreplikate
 cd replikate
 make tidy             # resolve dependencies
 make build            # compile ./bin/replikate
@@ -58,7 +58,7 @@ request; please make sure it's green.
 
 ## Reporting bugs and requesting features
 
-Open a [GitHub issue](https://github.com/cwolsen7905/replikate/issues) with
+Open a [GitHub issue](https://github.com/ubixsys/ubixreplikate/issues) with
 enough detail to reproduce (Kubernetes version, controller version, the source
 object's annotations, and what you expected vs. what happened).
 

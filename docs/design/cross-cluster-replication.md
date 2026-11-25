@@ -75,7 +75,7 @@ events plus a `replikate_cluster_up{cluster}` gauge.
 **Spoke RBAC**: each spoke needs a ServiceAccount whose token is in the
 credential Secret, bound to a ClusterRole that can `list` Namespaces and
 `get/list/create/update/delete` ConfigMaps and Secrets. The chart ships these as
-a separate, applies-on-the-spoke manifest (`charts/replikate/spoke-rbac` or a
+a separate, applies-on-the-spoke manifest (`charts/ubixreplikate/spoke-rbac` or a
 `helm template` sub-output).
 
 ## Contract extension (additive)

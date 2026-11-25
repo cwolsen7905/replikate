@@ -1,4 +1,4 @@
-module github.com/cwolsen7905/replikate
+module github.com/ubixsys/ubixreplikate
 
 go 1.23.0
 

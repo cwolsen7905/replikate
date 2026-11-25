@@ -1,6 +1,0 @@
-apiVersion: v2
-name: replikate
-description: Kubernetes controller that replicates ConfigMaps and Secrets across namespaces.
-type: application
-version: 1.4.0
-appVersion: "1.4.0"

@@ -20,7 +20,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/cwolsen7905/replikate/internal/controller"
+	"github.com/ubixsys/ubixreplikate/internal/controller"
 )
 
 var (

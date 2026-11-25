@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The product is now **uBixReplikate**. The annotation prefix
+(`replikate.ubixsys.com`) does not change, so no manifest or copy is touched.
+
+### Changed
+
+- The Helm chart is renamed `charts/replikate` → `charts/ubixreplikate`, and
+  its default image is `ghcr.io/ubixsys/ubixreplikate`. Resource names follow
+  the chart name; `--set fullnameOverride=replikate` keeps the old ones. See
+  "Upgrading from the `replikate` chart" in the README.
+- The GitHub repository is `github.com/ubixsys/ubixreplikate`, and the Go
+  module path follows it (`github.com/ubixsys/ubixreplikate`, previously the
+  personal `github.com/cwolsen7905/replikate`).
+- Images are published under both `ghcr.io/ubixsys/ubixreplikate` and the
+  previous `ghcr.io/ubixsys/replikate` for a transition period.
+- The Makefile's default `IMAGE_REPO` is `ghcr.io/ubixsys/ubixreplikate`
+  (it pointed at the personal mirror).
+
+### Fixed
+
+- The README quickstart pinned image tag `v1.3.0`; published tags have no
+  `v` (`1.3.0`), so that install could not pull its image. The chart's
+  `appVersion` is used instead.
+
 ## [1.4.0] - 2026-09-29
 
 Several namespaces per spoke cluster. Additive: existing `target-clusters`
@@ -269,12 +292,13 @@ semantics are considered stable and won't change incompatibly without a 2.0.
 - Runs as a distroless `nonroot` image with a read-only root filesystem, all
   Linux capabilities dropped, and least-privilege RBAC.
 
-[Unreleased]: https://github.com/cwolsen7905/replikate/compare/v1.3.0...HEAD
-[1.3.0]: https://github.com/cwolsen7905/replikate/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/cwolsen7905/replikate/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/cwolsen7905/replikate/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/cwolsen7905/replikate/compare/v0.4.0...v1.0.0
-[0.4.0]: https://github.com/cwolsen7905/replikate/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/cwolsen7905/replikate/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/cwolsen7905/replikate/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/cwolsen7905/replikate/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ubixsys/ubixreplikate/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ubixsys/ubixreplikate/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/ubixsys/ubixreplikate/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/ubixsys/ubixreplikate/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/ubixsys/ubixreplikate/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/ubixsys/ubixreplikate/compare/v0.4.0...v1.0.0
+[0.4.0]: https://github.com/ubixsys/ubixreplikate/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/ubixsys/ubixreplikate/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/ubixsys/ubixreplikate/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/ubixsys/ubixreplikate/releases/tag/v0.1.0
