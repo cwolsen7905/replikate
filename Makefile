@@ -1,7 +1,7 @@
 IMAGE_REPO ?= ghcr.io/ubixsys/ubixreplikate
 IMAGE_TAG  ?= latest
 IMG        := $(IMAGE_REPO):$(IMAGE_TAG)
-NAMESPACE  ?= replikate
+NAMESPACE  ?= replikate-system
 
 LOCALBIN            := $(CURDIR)/bin
 SETUP_ENVTEST       := $(LOCALBIN)/setup-envtest
