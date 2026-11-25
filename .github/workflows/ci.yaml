@@ -15,7 +15,7 @@ on:
   # Manual trigger, so a tagged image can be (re)built on demand — e.g. a release
   # tag that reached this repo via the GitLab push-mirror, which does not reliably
   # fire the tag `push` event. Dispatch against the tag ref (gh workflow run CI
-  # -R <owner>/replikate --ref v1.3.0); the semver image tag is derived from it.
+  # -R <owner>/ubixreplikate --ref v1.4.1); the semver image tag is derived from it.
   workflow_dispatch:
 
 permissions:
@@ -38,7 +38,9 @@ jobs:
 
   image:
     needs: build
-    if: github.event_name == 'push'
+    # A manual run publishes too: tags that arrive through the GitLab push-mirror do
+    # not reliably fire a push event, and the dispatch below is how they get an image.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
