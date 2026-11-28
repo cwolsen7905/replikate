@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <title>uBixReplikate: ConfigMaps and Secrets, replicated and kept in sync.</title>
+  <rect width="1280" height="640" fill="#151b21"/>
+  <rect x="0" y="0" width="1280" height="8" fill="#0f62fe"/>
+  <g transform="translate(80 80) scale(3.75)">
+    <rect width="32" height="32" fill="#0f62fe"/>
+    <rect x="5" y="12" width="8" height="8" fill="#ffffff"/>
+    <rect x="13" y="15" width="8" height="2" fill="#ffffff"/>
+    <rect x="17" y="7.5" width="2" height="17" fill="#ffffff"/>
+    <rect x="19" y="7.5" width="2" height="2" fill="#ffffff"/>
+    <rect x="19" y="22.5" width="2" height="2" fill="#ffffff"/>
+    <rect x="21" y="5.5" width="6" height="6" fill="#ffffff" opacity="0.55"/>
+    <rect x="21" y="13" width="6" height="6" fill="#ffffff" opacity="0.55"/>
+    <rect x="21" y="20.5" width="6" height="6" fill="#ffffff" opacity="0.55"/>
+  </g>
+  <g font-family="'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif" fill="#e3e8ec">
+    <text x="80" y="300" font-size="112"><tspan font-weight="300">uBix</tspan><tspan font-weight="600">Replikate</tspan></text>
+    <text x="84" y="372" font-size="40" fill="#b3bec7">ConfigMaps and Secrets, replicated and kept in sync.</text>
+  </g>
+  <g transform="translate(0 -20)">
+  <rect x="80" y="485" width="80" height="80" fill="#e0a43a"/>
+  <g fill="none" stroke-width="10" stroke-linejoin="round">
+    <path d="M160 525H560" stroke="#e3e8ec"/>
+    <path d="M560 525C660 525 680 445 780 445H1040" stroke="#2f7fb0"/>
+    <path d="M560 525H1040" stroke="#8a4fc0"/>
+    <path d="M560 525C660 525 680 605 780 605H1040" stroke="#b8406f"/>
+  </g>
+  <g fill="#e0a43a" opacity="0.7">
+    <rect x="1050" y="415" width="60" height="60"/><rect x="1050" y="495" width="60" height="60"/><rect x="1050" y="575" width="60" height="60"/>
+  </g>
+  </g>
+</svg>
