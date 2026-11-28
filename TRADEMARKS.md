@@ -1,6 +1,6 @@
 # Trademarks
 
-"uBix", "Replikate" and the uBix logos are trademarks of uBixSys.
+"uBix", "uBixReplikate", "Replikate" and the uBix logos are trademarks of uBixSys.
 
 The license on this code (see [LICENSE](LICENSE)) covers the code. It does not grant any right to
 use the uBix names or logos. The brand files in `docs/brand/` are here so this project can show
